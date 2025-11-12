@@ -41,6 +41,8 @@ MODEL_FORECAST_PARAM_DEFS = [
     {"name": "tank_capacity_liters", "type": "int", "required": True},
     {"name": "starting_tank_volume", "type": "int", "required": True},
     {"name": "soil_threshold", "type": "float", "required": True},
+    {"name": "scenario", "type": "str", "required": True},
+    {"name": "start_soil_moisture", "type": "float", "required": True},
 ]
 
 
@@ -93,7 +95,6 @@ def get_model_forecast(request) -> Response:
     except Exception as e:
         return Response({"error": f"Simulation failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
     forecast_data = {
         "tank_forecast": tank_results,
         "soil_forecast": soil_results
@@ -111,8 +112,9 @@ def get_model_forecast(request) -> Response:
 @permission_classes([AllowAny])
 def get_model_params_list(request) -> Response:
     return Response(
-        [{"input_parameters": MODEL_FORECAST_PARAM_DEFS},
-         {"scenarios": [{"name": s} for s in MODEL_CASES]},
-         {"actions": MODEL_ACTIONS},
-         {"forecasts": MODEL_FORECASTS}
-         ], status=status.HTTP_200_OK)
+        {
+            "input_parameters": MODEL_FORECAST_PARAM_DEFS,
+            "scenarios": [{"name": s} for s in MODEL_CASES],
+            "actions": MODEL_ACTIONS,
+            "forecasts": MODEL_FORECASTS
+        }, status=status.HTTP_200_OK)
