@@ -35,14 +35,14 @@ MODEL_ACTIONS = [{"name": "watering", "type": "float"}]
 MODEL_FORECASTS = [{"name": "tank-level"}, {"name": "soil-moisture"}]
 
 MODEL_FORECAST_PARAM_DEFS = [
-    {"name": "latitude", "type": "float", "required": True},
-    {"name": "longitude", "type": "float", "required": True},
-    {"name": "forecast_days", "type": "int", "required": True},
-    {"name": "tank_capacity_liters", "type": "int", "required": True},
-    {"name": "starting_tank_volume", "type": "int", "required": True},
-    {"name": "soil_threshold", "type": "float", "required": True},
-    {"name": "scenario", "type": "str", "required": True},
-    {"name": "start_soil_moisture", "type": "float", "required": True},
+    {"name": "latitude", "type": "static", "input_type": "float", "required": True},
+    {"name": "longitude", "type": "static","input_type": "float", "required": True},
+    {"name": "forecast_days", "type": "static","input_type": "int", "required": True},
+    {"name": "tank_capacity_liters", "type": "static","input_type": "int", "required": True},
+    {"name": "starting_tank_volume", "type": "sensor","input_type": "int", "required": True},
+    {"name": "soil_threshold", "type": "static", "input_type": "float", "required": True},
+    {"name": "scenario", "type": "static", "input_type": "str", "required": True},
+    {"name": "start_soil_moisture", "type": "sensor", "input_type": "float", "required": True},
 ]
 
 
@@ -71,7 +71,7 @@ def get_model_forecast(request) -> Response:
     forecast_days = int(params.get("forecast_days"))
 
     tank_capacity_liters = int(params.get("tank_capacity_liters"))
-    starting_tank_volume = int(params.get("starting_tank_volume"))
+    starting_tank_volume = int(float(params.get("starting_tank_volume")))
     soil_threshold = float(params.get("soil_threshold"))
     scenario = str(params.get("scenario"))
     start_soil_moisture = float(params.get("start_soil_moisture"))
