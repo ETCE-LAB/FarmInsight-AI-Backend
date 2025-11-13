@@ -41,7 +41,7 @@ class ForecastMetricSerializer(serializers.Serializer):
 class ActionPointSerializer(serializers.Serializer):
     timestamp = serializers.DateTimeField()
     value = serializers.FloatField()  # irr_l
-    action = serializers.ChoiceField(choices=["watering", "none"])
+    action = serializers.ChoiceField(choices=["watering"], required=False)
 
 class ActionsByCaseSerializer(serializers.Serializer):
     name = serializers.CharField()

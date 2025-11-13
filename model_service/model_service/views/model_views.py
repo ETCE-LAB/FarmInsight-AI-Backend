@@ -24,11 +24,10 @@ MODEL_FORECAST_PARAMS = [
     "tank_capacity_liters",
     "starting_tank_volume",
     "soil_threshold",
-    "scenario",
     "start_soil_moisture"
 ]
 
-MODEL_CASES: List[str] = ["best-case", "average-case", "worst-case"]
+MODEL_SCENARIOS: List[str] = ["best-case", "average-case", "worst-case"]
 
 MODEL_ACTIONS = [{"name": "watering", "type": "float"}]
 
@@ -36,10 +35,10 @@ MODEL_FORECASTS = [{"name": "tank-level"}, {"name": "soil-moisture"}]
 
 MODEL_FORECAST_PARAM_DEFS = [
     {"name": "latitude", "type": "static", "input_type": "float", "required": True},
-    {"name": "longitude", "type": "static","input_type": "float", "required": True},
-    {"name": "forecast_days", "type": "static","input_type": "int", "required": True},
-    {"name": "tank_capacity_liters", "type": "static","input_type": "int", "required": True},
-    {"name": "starting_tank_volume", "type": "sensor","input_type": "int", "required": True},
+    {"name": "longitude", "type": "static", "input_type": "float", "required": True},
+    {"name": "forecast_days", "type": "static", "input_type": "int", "required": True},
+    {"name": "tank_capacity_liters", "type": "static", "input_type": "int", "required": True},
+    {"name": "starting_tank_volume", "type": "sensor", "input_type": "int", "required": True},
     {"name": "soil_threshold", "type": "static", "input_type": "float", "required": True},
     {"name": "scenario", "type": "static", "input_type": "str", "required": True},
     {"name": "start_soil_moisture", "type": "sensor", "input_type": "float", "required": True},
@@ -62,7 +61,7 @@ def get_model_forecast(request) -> Response:
     params = {}
     for name in MODEL_FORECAST_PARAMS:
         value = request.query_params.get(name)
-        if value is None and not "scenario":
+        if value is None:
             return Response({"error": f"Missing parameter: {name}"}, status=status.HTTP_400_BAD_REQUEST)
         params[name] = value
 
@@ -73,23 +72,16 @@ def get_model_forecast(request) -> Response:
     tank_capacity_liters = int(params.get("tank_capacity_liters"))
     starting_tank_volume = int(float(params.get("starting_tank_volume")))
     soil_threshold = float(params.get("soil_threshold"))
-    scenario = str(params.get("scenario"))
     start_soil_moisture = float(params.get("start_soil_moisture"))
-
-    if scenario in MODEL_CASES:
-        scenario = [scenario]
-    else:
-        scenario = MODEL_CASES
-
     try:
         tank_results, soil_results = model_forecast(
             latitude=latitude,
             longitude=longitude,
             forecast_days=forecast_days,
-            W0_l=starting_tank_volume,
+            initial_water_level=starting_tank_volume,
             tank_capacity_liters=tank_capacity_liters,
             soil_threshold=soil_threshold,
-            scenarios=scenario,
+            scenarios=MODEL_SCENARIOS,
             start_soil_moisture=start_soil_moisture
         )
     except Exception as e:
@@ -114,7 +106,7 @@ def get_model_params_list(request) -> Response:
     return Response(
         {
             "input_parameters": MODEL_FORECAST_PARAM_DEFS,
-            "scenarios": [{"name": s} for s in MODEL_CASES],
+            "scenarios": [{"name": s} for s in MODEL_SCENARIOS],
             "actions": MODEL_ACTIONS,
             "forecasts": MODEL_FORECASTS
         }, status=status.HTTP_200_OK)

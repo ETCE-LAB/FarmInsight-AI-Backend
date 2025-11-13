@@ -10,29 +10,27 @@ try:
 
     from ..utils.predictor import MockTankModel
 
-    ML_MODEL = MockTankModel(learned_daily_loss_factor=0.005)
+    ML_MODEL = MockTankModel(water_in_tank_loss_factor=0.005)
 
 except FileNotFoundError:
     print("WARNING: Missing ML-model. Use mock model")
-    ML_MODEL = MockTankModel(learned_daily_loss_factor=0.01)
-
+    ML_MODEL = MockTankModel(water_in_tank_loss_factor=0.01)
 
 FACE_AZIMUTH_DEG = 30.0
 FACE_AREA_M2 = 6.668
 SLOPE_DEG = 30.26
 
 # estimated plant area
-A_SOIL_M2 = 10.0
+A_SOIL_M2 = 8.0
 
 MAX_IRRIGATION_L_DAY = 1.5
-MIN_MOISTURE = 60.0
-MAX_MOISTURE = 135.0
+
 
 def model_forecast(
         latitude: float,
         longitude: float,
         forecast_days: int,
-        W0_l: float,
+        initial_water_level: float,
         tank_capacity_liters: float,
         soil_threshold: float,
         scenarios: list,
@@ -61,22 +59,20 @@ def model_forecast(
         runoff_coeff=1.0,  # for ML-model, factor learned by model
         first_flush_loss=0.0  # for ML-model, factor learned by model
     )
-    print("\n data: ", inflow_data)
+    # print("\n data: ", inflow_data)
 
     tank_results, soil_results = run_forecast_period(
         forecast=forecast,
         inflow_data=inflow_data,
-        ML_model=ML_MODEL,
+        ml_model=ML_MODEL,
 
-        W0_l=W0_l,
-        M0_mm=start_soil_moisture,
+        initial_water_level=initial_water_level,
+        initial_moisture=start_soil_moisture,
         tank_capacity_liters=tank_capacity_liters,
         soil_threshold=soil_threshold,
 
         max_irrigation_l_day=MAX_IRRIGATION_L_DAY,
-        A_soil_m2=A_SOIL_M2,
-        max_moisture=MAX_MOISTURE,
-        min_moisture=MIN_MOISTURE,
+        plant_area=A_SOIL_M2,
         scenarios=scenarios
     )
 

@@ -4,6 +4,8 @@ import pandas as pd
 
 
 def response_wrapper(plans: dict) -> dict:
+    print("plans:", plans)
+
     def add_time_delta(date):
         timestamp = pd.to_datetime(date)
         timestamp = timestamp.tz_localize("Europe/Berlin")
@@ -20,11 +22,15 @@ def response_wrapper(plans: dict) -> dict:
     def action_points(value_key: str, case_key: str):
         pts = []
         for row in plans[value_key][case_key]:
-            pts.append({
+            data = {
                 "timestamp": add_time_delta(row["date"]),
-                "value": float(row["qout_l"]),  # Wassermenge
-                "action": "watering" if row["qout_l"] > 0.0 else "none",
-            })
+                "value": float(row["qout_l"])  # amount of water
+            }
+
+            if float(row["qout_l"]) > 0.0:
+                data["action"] = "watering"
+            print("data:", data)
+            pts.append(data)
         return pts
 
     forecasts = [
