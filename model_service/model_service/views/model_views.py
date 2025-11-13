@@ -40,7 +40,6 @@ MODEL_FORECAST_PARAM_DEFS = [
     {"name": "tank_capacity_liters", "type": "static", "input_type": "int", "required": True},
     {"name": "starting_tank_volume", "type": "sensor", "input_type": "int", "required": True},
     {"name": "soil_threshold", "type": "static", "input_type": "float", "required": True},
-    {"name": "scenario", "type": "static", "input_type": "str", "required": True},
     {"name": "start_soil_moisture", "type": "sensor", "input_type": "float", "required": True},
 ]
 
