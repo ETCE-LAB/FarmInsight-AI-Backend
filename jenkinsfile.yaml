@@ -40,9 +40,8 @@ pipeline {
       steps{
             sh '''
              kubectl --token=${TOKEN} --server="${KUBERNETES_SERVER}" --insecure-skip-tls-verify -n farminsight get pods
-             kubectl --token=${TOKEN} --server="${KUBERNETES_SERVER}" --insecure-skip-tls-verify -n farminsight delete pods -l=app=farminsight-dashboard-backend
+             kubectl --token=${TOKEN} --server="${KUBERNETES_SERVER}" --insecure-skip-tls-verify -n farminsight delete pods -l=app=farminsight-ai-backend
              kubectl --token=${TOKEN} --server="${KUBERNETES_SERVER}" --insecure-skip-tls-verify -n farminsight apply -f deployment.yaml
-             kubectl --token=${TOKEN} --server="${KUBERNETES_SERVER}" --insecure-skip-tls-verify -n farminsight apply -f service.yaml
             '''
        }
 }
