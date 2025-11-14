@@ -1,0 +1,50 @@
+pipeline {
+  environment {
+    dockerregistry = "https://registry.etce.isse.tu-clausthal.de"
+    dockerregistrycredential = "docker-registry-private"
+    dockerimagename = "registry.etce.isse.tu-clausthal.de/etce-lab/farminsight-ai-backend:latest"
+    dockerImage = ""
+    TOKEN = credentials('jenkins-farminsight-kubernetes-token')
+    KUBERNETES_SERVER = credentials('kubernetes-server-api-url')
+  }
+  agent any
+  stages {
+    stage('Checkout Source') {
+      steps {
+        git url: 'https://github.com/ETCE-LAB/FarmInsight-AI-Backend.git',
+            branch: 'deployment'
+      }
+    }
+    stage('Build image') {
+      steps{
+        script{
+        dockerImage = docker.build(dockerimagename)
+        }
+      }
+    }
+    stage('Deploy Image'){
+      steps{
+        script{
+          docker.withRegistry(dockerregistry, dockerregistrycredential){
+          dockerImage.push("latest")
+          }
+        }
+      }
+    }
+    stage('Remove Unused docker image'){
+      steps{
+        sh 'docker rmi $dockerimagename'
+      }
+    }
+    stage('Re-deploy Kubernetes Pod'){
+      steps{
+            sh '''
+             kubectl --token=${TOKEN} --server="${KUBERNETES_SERVER}" --insecure-skip-tls-verify -n farminsight get pods
+             kubectl --token=${TOKEN} --server="${KUBERNETES_SERVER}" --insecure-skip-tls-verify -n farminsight delete pods -l=app=farminsight-dashboard-backend
+             kubectl --token=${TOKEN} --server="${KUBERNETES_SERVER}" --insecure-skip-tls-verify -n farminsight apply -f deployment.yaml
+             kubectl --token=${TOKEN} --server="${KUBERNETES_SERVER}" --insecure-skip-tls-verify -n farminsight apply -f service.yaml
+            '''
+       }
+}
+    }
+  }
