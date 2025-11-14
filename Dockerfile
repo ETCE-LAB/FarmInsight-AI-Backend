@@ -5,7 +5,7 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-COPY ./django_server /app/
+COPY ./model_service /app/
 
 RUN pip install --no-cache-dir -r requirements.txt
 
