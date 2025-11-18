@@ -6,7 +6,7 @@ class MockTankModel:
     Simulates the future ML model
     """
 
-    def __init__(self, A_soil_m2=10.0, water_in_tank_loss_factor=0.005, loss_through_et_factor=0.05):
+    def __init__(self, A_soil_m2=10.0, water_in_tank_loss_factor=0.0007, loss_through_et_factor=0.05):
         # estimated factors
         self.A_soil_m2 = A_soil_m2
         self.water_in_tank_loss_factor = water_in_tank_loss_factor  # natural water loss

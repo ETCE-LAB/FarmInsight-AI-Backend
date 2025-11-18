@@ -35,7 +35,6 @@ def compute_greenhouse_roof_rain(
         first_flush_loss: float = 0.03
 ) -> List[Dict]:
     daily = forecast.get("daily", {})
-    print(daily)
     times: List[str] = daily.get("time") or []
 
     if not times:
