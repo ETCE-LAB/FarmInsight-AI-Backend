@@ -22,15 +22,16 @@ def response_wrapper(plans: dict) -> dict:
     def action_points(value_key: str, case_key: str):
         pts = []
         for row in plans[value_key][case_key]:
-            data = {
-                "timestamp": add_time_delta(row["date"]),
-                "value": float(row["qout_l"])  # amount of water
-            }
-
             if float(row["qout_l"]) > 0.0:
-                data["action"] = "watering"
-            print("data:", data)
-            pts.append(data)
+                data = {
+                    "timestamp": add_time_delta(row["date"]),
+                    "value": float(row["qout_l"]),  # amount of water
+                    "action": "watering"
+                }
+                print("data:", data)
+                pts.append(data)
+            else:
+                continue
         return pts
 
     forecasts = [
@@ -59,3 +60,58 @@ def response_wrapper(plans: dict) -> dict:
     ]
 
     return {"forecasts": forecasts, "actions": actions}
+
+
+{"forecasts": [{"name": "tank_level", "values": [{"name": "best_case", "value": [
+    {"timestamp": "2025-11-20T08:00:00Z", "value": 70.51430706282729},
+    {"timestamp": "2025-11-21T08:00:00Z", "value": 70.51430706282729}]}, {"name": "average_case", "value": [
+    {"timestamp": "2025-11-20T08:00:00Z", "value": 64.05891551166116},
+    {"timestamp": "2025-11-21T08:00:00Z", "value": 64.05891551166116}]}, {"name": "worst_case", "value": [
+    {"timestamp": "2025-11-20T08:00:00Z", "value": 56.11252396049503},
+    {"timestamp": "2025-11-21T08:00:00Z", "value": 54.61252396049503}]}]}, {"name": "soil_moisture", "values": [
+    {"name": "best_case", "value": [{"timestamp": "2025-11-20T08:00:00Z", "value": 57.119},
+                                    {"timestamp": "2025-11-21T08:00:00Z", "value": 57.119}]}, {"name": "average_case",
+                                                                                               "value": [{
+                                                                                                   "timestamp": "2025-11-20T08:00:00Z",
+                                                                                                   "value": 51.91},
+                                                                                                   {
+                                                                                                       "timestamp": "2025-11-21T08:00:00Z",
+                                                                                                       "value": 51.91}]},
+    {"name": "worst_case", "value": [{"timestamp": "2025-11-20T08:00:00Z", "value": 46.851000000000006},
+                                     {"timestamp": "2025-11-21T08:00:00Z", "value": 47.001000000000005}]}]}],
+ "actions": [{"name": "best_case", "value": [{"timestamp": "2025-11-20T08:00:00Z", "value": 0.0},
+                                             {"timestamp": "2025-11-21T08:00:00Z", "value": 0.0}]},
+             {"name": "average_case", "value": [{"timestamp": "2025-11-20T08:00:00Z", "value": 0.0},
+                                                {"timestamp": "2025-11-21T08:00:00Z", "value": 0.0}]},
+             {"name": "worst_case", "value": [{"timestamp": "2025-11-20T08:00:00Z", "value": 1.5, "action": "watering"},
+                                              {"timestamp": "2025-11-21T08:00:00Z", "value": 1.5,
+                                               "action": "watering"}]}]
+
+{"forecasts": [{"name": "tank_level", "values": [{"name": "best_case", "value": [
+    {"timestamp": "2025-11-20T08:00:00Z", "value": 70.51430706282729},
+    {"timestamp": "2025-11-21T08:00:00Z", "value": 70.51430706282729}]}, {"name": "average_case", "value": [
+    {"timestamp": "2025-11-20T08:00:00Z", "value": 64.05891551166116},
+    {"timestamp": "2025-11-21T08:00:00Z", "value": 64.05891551166116}]}, {"name": "worst_case", "value": [
+    {"timestamp": "2025-11-20T08:00:00Z", "value": 56.11252396049503},
+    {"timestamp": "2025-11-21T08:00:00Z", "value": 54.61252396049503}]}]}, {"name": "soil_moisture", "values": [
+    {"name": "best_case", "value": [{"timestamp": "2025-11-20T08:00:00Z", "value": 57.119},
+                                    {"timestamp": "2025-11-21T08:00:00Z", "value": 57.119}]}, {"name": "average_case",
+                                                                                               "value": [{
+                                                                                                             "timestamp": "2025-11-20T08:00:00Z",
+                                                                                                             "value": 51.91},
+                                                                                                         {
+                                                                                                             "timestamp": "2025-11-21T08:00:00Z",
+                                                                                                             "value": 51.91}]},
+    {"name": "worst_case", "value": [{"timestamp": "2025-11-20T08:00:00Z", "value": 46.851000000000006},
+                                     {"timestamp": "2025-11-21T08:00:00Z", "value": 47.001000000000005}]}]}],
+
+
+ "actions": [{"name": "best_case", "value": []}, {"name": "average_case", "value": []}, {"name": "worst_case",
+                                                                                         "value": [{
+                                                                                                       "timestamp": "2025-11-20T08:00:00Z",
+                                                                                                       "value": 1.5,
+                                                                                                       "action": "watering"},
+                                                                                                   {
+                                                                                                       "timestamp": "2025-11-21T08:00:00Z",
+                                                                                                       "value": 1.5,
+                                                                                                       "action": "watering"}]}]
