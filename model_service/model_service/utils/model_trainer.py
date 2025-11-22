@@ -1,77 +1,90 @@
+import os.path
 from os import makedirs
 
 import numpy as np
 import pandas as pd
+from django.conf import settings
 from joblib import dump
 from lightgbm import LGBMRegressor
 from sklearn.linear_model import BayesianRidge, ElasticNet
 from sklearn.metrics import r2_score
-from sklearn.model_selection import train_test_split, KFold, TimeSeriesSplit, GridSearchCV
+from sklearn.model_selection import train_test_split, TimeSeriesSplit, GridSearchCV
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from model_service.model_service.utils.data_processor import prepare_data_for_training
+BASE_DIR = settings.BASE_DIR
+
+DATA_DIR = BASE_DIR / "model_service"
 
 X_feature_cols = [
-    # Aktueller Zustand
     "soil_moisture",
     "water_level",
     "soil_moisture_prev",
     "water_level_prev",
 
-    # Zeit
     "day_of_year",
     "month",
 
-    # Daten des Standortes
-    "tank_capacity",
+    # "tank_capacity",
 
-    # Heute:
     "temp_today",
     "rain_today",
 
-    # Morgen:
     "temp_tomorrow",
     "rain_tomorrow",
 
-    # Wettervorhersage (für Horizon h)
+    # für Horizon h
     # "sum_rain_next_h_days",
     # "mean_temp_next_h_days",
     "irrigation_last_h_days",
-    # "sum_ET0_next_h_days",
+    # "eto_next_h_days",
 
-    # Bewässerungsplan
+    # Plan
     # "planned_irrigation_next_h_days",
-    "pump_usage"
+    "pump_usage",
+    "calculated_total_l",
+    "irrigation_today"
 ]
-# rain_d1, rain_d2, …, rain_dh
-# temp_mean_d1, temp_mean_d2, ...
 
 y_feature_cols = [
-    # "soil_moisture_in_h_days",
-    # "water_level_in_h_days",
-    "water_level_tomorrow",
-    "soil_moisture_tomorrow"
+    "delta_water_level",
+    "delta_soil_moisture",
+    # "water_level_tomorrow", for production
+    # "soil_moisture_tomorrow" for production
 ]
 
 
 def get_model_type_and_params(model_type: str, scaler_unnecessary: bool):
-    pipeline = None
     if scaler_unnecessary:
         model = LGBMRegressor(objective="regression", boosting_type="gbdt", metric="rmse", min_child_weight=1e-3,
-                              subsample_freq=1, max_bin=255, n_jobs=1)
-        params = {
-            "n_estimators": [300, 600],
-            "learning_rate": [0.01, 0.03, 0.1],
-            "num_leaves": [31, 63],
-            "max_depth": [-1, 10],
-            "min_child_samples": [10, 30],
-            "subsample": [0.7, 1.0],
-            "colsample_bytree": [0.7, 1.0],
-            "reg_lambda": [0.0, 1.0],  # L2
-            "reg_alpha": [0.0, 0.1],  # L1
-        }
+                              subsample_freq=1, max_bin=255, n_jobs=1, min_split_gain=0.0)
+
+        gpu = False
+        if not gpu:
+            params = {
+                "n_estimators": [300],
+                "learning_rate": [0.01],
+                "num_leaves": [31, 63],
+                "max_depth": [-1],
+                "min_child_samples": [10],
+                "subsample": [1.0],
+                "colsample_bytree": [1.0],
+                "reg_lambda": [0.0, 1.0],  # L2
+                "reg_alpha": [0.0, 0.1],  # L1
+            }
+        else:
+            params = {
+                "n_estimators": [300, 600],
+                "learning_rate": [0.01, 0.03, 0.1],
+                "num_leaves": [31, 63],
+                "max_depth": [-1, 10],
+                "min_child_samples": [10, 30],
+                "subsample": [0.7, 1.0],
+                "colsample_bytree": [0.7, 1.0],
+                "reg_lambda": [0.0, 1.0],  # L2
+                "reg_alpha": [0.0, 0.1],  # L1
+            }
         pipeline = model
     else:
         if model_type == "ElasticNet":
@@ -156,10 +169,9 @@ def get_split_number(len_data, predict_horizon=7):
         return min(3, max_splits)
 
 
-def train_model():
-    prepare_data_for_training()
-
-    df = pd.read_csv("../data/training_data.csv")
+def train_model(use_synthetic_data: bool):
+    df = pd.read_csv(
+        os.path.join(DATA_DIR, "data/synthetic_training_data.csv" if use_synthetic_data else "data/training_data.csv"))
     X = df[X_feature_cols]
     y = df[y_feature_cols]
 
@@ -177,17 +189,11 @@ def train_model():
     best_params_water_level = multi_model.estimators_[0].best_params_
     best_params_soil_moisture = multi_model.estimators_[1].best_params_
 
-    makedirs("../trained_models", exist_ok=True)
-    dump(multi_model, "../trained_models/final_model.pkl")
+    makedirs(os.path.join(DATA_DIR, "trained_models"), exist_ok=True)
+    dump(multi_model, os.path.join(DATA_DIR,
+                                   "trained_models/synthetic_model.pkl" if use_synthetic_data else "trained_models/model.pkl"))
 
     y_pred = multi_model.predict(X_test)
     final_r2_score = r2_score(y_test, y_pred, multioutput='uniform_average')
 
-    print("Training completed:",
-          training_info(len_X, len_y, model_type, best_params_water_level, best_params_soil_moisture, final_r2_score)
-          )
-
-    return len_X, len_y, model_type, best_params_water_level, best_params_soil_moisture, final_r2_score
-
-
-train_model()
+    return training_info(len_X, len_y, model_type, best_params_water_level, best_params_soil_moisture, final_r2_score)

@@ -124,6 +124,6 @@ def compute_greenhouse_roof_rain(
             "phi_to_deg": phi_to_deg,
             "model_type": "keep_mass",
             "cos_base": base,
-            "applied_loss_global": loss_factor_global,
+            "applied_loss_global": loss_factor_global
         })
     return out

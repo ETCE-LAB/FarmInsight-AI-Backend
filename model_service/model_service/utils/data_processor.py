@@ -1,11 +1,16 @@
+import os
 from os import makedirs
 
 import pandas as pd
 import requests
+from django.conf import settings
 
-from model_service.model_service.utils.greenhouse_calculator import compute_greenhouse_roof_rain
+from ..utils.greenhouse_calculator import compute_greenhouse_roof_rain
 
 import calendar
+
+BASE_DIR = settings.BASE_DIR
+DATA_DIR = os.path.join(BASE_DIR, "model_service","data")
 
 
 def days_in_year(year: int) -> int:
@@ -38,15 +43,15 @@ def check_timeline_in_data(series: pd.Series):
 
 
 def prepare_data_for_training():
-    rain = pd.read_csv("../data/rain_amount.csv", parse_dates=["measuredAt"])
-    soil = pd.read_csv("../data/soil_moisture.csv", parse_dates=["measuredAt"])
-    water = pd.read_csv("../data/water_level.csv", parse_dates=["measuredAt"])
+    rain = pd.read_csv(os.path.join(DATA_DIR, "rain_amount.csv"), parse_dates=["measuredAt"])
+    soil = pd.read_csv(os.path.join(DATA_DIR, "soil_moisture.csv"), parse_dates=["measuredAt"])
+    water = pd.read_csv(os.path.join(DATA_DIR, "water_level.csv"), parse_dates=["measuredAt"])
 
     rain = rain.rename(columns={"value": "rain_amount"})
     soil = soil.rename(columns={"value": "soil_moisture"})
     water = water.rename(columns={"value": "water_level"})
 
-    rain["rain_amount"] = rain["rain_amount"] * 0.25  # Auflösung von Sensor checken
+    rain["rain_amount"] = rain["rain_amount"] * 0.254  # Auflösung von Sensor checken
 
     rain["date"] = rain["measuredAt"].dt.date
     soil["date"] = soil["measuredAt"].dt.date
@@ -141,14 +146,14 @@ def prepare_data_for_training():
     pump_usage = [1 if i % 2 == 0 else 0 for i in range(0, len(df_train))]
 
     df_train["pump_usage"] = pump_usage
-    df_train["water_usage"] = df_train["pump_usage"] * 1.5
+    df_train["irrigation_today"] = df_train["pump_usage"] * 1.5
 
     h = 7
 
     for i in range(1, h + 1):
         df_train[f"rain_after_{i}_days"] = df_train["rain_amount"].shift(-i)  # negativer Shift = Zukunft
         df_train[f"temp_after_{i}_days"] = df_train["Tmax_c"].shift(-i)
-        df_train[f"irrigation_last{i}_days"] = df_train["water_usage"].shift(i)  # positiver Shift = Vergangenheit
+        df_train[f"irrigation_last{i}_days"] = df_train["irrigation_today"].shift(i)  # positiver Shift = Vergangenheit
 
     df_train["rain_today"] = df_train["rain_amount"]
     df_train["rain_tomorrow"] = df_train["rain_amount"].shift(-1)
@@ -162,8 +167,8 @@ def prepare_data_for_training():
 
     df_train = df_train.dropna()
 
-    makedirs("../data", exist_ok=True)
-    df_train.to_csv("../data/training_data.csv", index=False)
+    makedirs(os.path.join(DATA_DIR, "../"), exist_ok=True)
+    df_train.to_csv(os.path.join("../training_data.csv"), index=False)
 
     # wann die Pumpe aktiv war, muss ergänzt werden, damit das Modell weiß, warum der Füllstand weniger wurde
 
