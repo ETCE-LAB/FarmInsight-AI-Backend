@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-df = pd.read_csv("../data/optimized_data.csv", parse_dates=["date"])
+df = pd.read_csv("../data/training_data.csv", parse_dates=["date"])
 
 print(df.isna().sum())
 

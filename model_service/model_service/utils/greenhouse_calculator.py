@@ -35,7 +35,6 @@ def compute_greenhouse_roof_rain(
         first_flush_loss: float = 0.03
 ) -> List[Dict]:
     daily = forecast.get("daily", {})
-    print(daily)
     times: List[str] = daily.get("time") or []
 
     if not times:
@@ -125,6 +124,6 @@ def compute_greenhouse_roof_rain(
             "phi_to_deg": phi_to_deg,
             "model_type": "keep_mass",
             "cos_base": base,
-            "applied_loss_global": loss_factor_global,
+            "applied_loss_global": loss_factor_global
         })
     return out

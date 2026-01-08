@@ -5,8 +5,9 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from ..serializers.tank_soil_forecast_serializer import ForecastWrappedResponseSerializer
+from ..serializers.tank_soil_forecast_serializer import ForecastWrappedResponseSerializer, TrainingSerializer
 from ..service.forecast_service import model_forecast
+from ..service.train_model_service import train_water_model
 from ..utils.response_wrapper import response_wrapper
 
 
@@ -109,3 +110,15 @@ def get_model_params_list(request) -> Response:
             "actions": MODEL_ACTIONS,
             "forecasts": MODEL_FORECASTS
         }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def train_model(request) -> Response:
+    train_data = train_water_model()
+
+    response_serializer = TrainingSerializer(data=train_data)
+
+    response_serializer.is_valid(raise_exception=True)
+
+    return Response(response_serializer.data, status=status.HTTP_200_OK)

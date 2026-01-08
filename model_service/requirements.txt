@@ -1,3 +1,7 @@
+numpy
+joblib
+lightgbm
+scikit-learn~=1.7.2
 Django~=5.1.2
 pandas~=2.3.3
 requests~=2.32.5

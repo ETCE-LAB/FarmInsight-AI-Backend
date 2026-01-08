@@ -22,15 +22,16 @@ def response_wrapper(plans: dict) -> dict:
     def action_points(value_key: str, case_key: str):
         pts = []
         for row in plans[value_key][case_key]:
-            data = {
-                "timestamp": add_time_delta(row["date"]),
-                "value": float(row["qout_l"])  # amount of water
-            }
-
-            if float(row["qout_l"]) > 0.0:
-                data["action"] = "watering"
-            print("data:", data)
-            pts.append(data)
+            if float(row["pump_usage"]) > 0:
+                data = {
+                    "timestamp": add_time_delta(row["date"]),
+                    "value": float(row["pump_usage"] * 3.0),  # amount of water
+                    "action": "watering"
+                }
+                print("data:", data)
+                pts.append(data)
+            else:
+                continue
         return pts
 
     forecasts = [
