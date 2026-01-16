@@ -1,29 +1,31 @@
-from typing import Dict, List, Tuple, Any
+"""
+Simulation loop for water management forecast.
+
+Refactored to use physics-first calculations with bounded ML residuals.
+"""
+from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 
+from .config import (
+    SOIL_K_IRRIG,
+    SOIL_K_RAIN,
+    SOIL_K_EVAP,
+    ML_RESIDUAL_MAX_FRACTION,
+    LITERS_PER_PUMP_LEVEL,
+)
 from .model_trainer import X_feature_cols
+from .physics_model import TankPhysics, SoilPhysics
+from .uncertainty import case_value_multiplicator, get_uncertainty_estimator
 
 
-def case_value_multiplicator(scenario: str, value: float, value_name: str) -> float:
-    if scenario == "average-case":
-        return value
-
-    is_best = scenario == "best-case"
-
-    if value_name in ("temp_max", "temp_today", "temp_tomorrow"):
-        return value * (0.9 if is_best else 1.1)
-
-    if value_name in ("rain", "rain_today", "rain_tomorrow"):
-        return value * (1.1 if is_best else 0.9)
-
-    if value_name in ("inflow_l", "calculated_total_l"):
-        return value * (1.1 if is_best else 0.9)
-
-    if value_name in ("soil_moisture_previous", "water_level_previous"):
-        return value * (1.05 if is_best else 0.95)
-
-    return value
+# Initialize physics models
+tank_physics = TankPhysics()
+soil_physics = SoilPhysics(
+    k_irrig=SOIL_K_IRRIG,
+    k_rain=SOIL_K_RAIN,
+    k_evap=SOIL_K_EVAP,
+)
 
 
 def run_forecast_period(
@@ -35,24 +37,46 @@ def run_forecast_period(
         initial_moisture: float,
         plant_area: float,
         scenario: str,
-        plan: Tuple[int, ...]
-) -> tuple[list[dict], list[dict]]:
+        plan: Tuple[int, ...],
+        use_conformal_uncertainty: bool = True,
+) -> Tuple[List[Dict], List[Dict]]:
+    """
+    Run forecast simulation for a given irrigation plan.
+    
+    Args:
+        df_forecast: Weather forecast DataFrame
+        forecast_days: Number of days to forecast
+        ml_model: Trained ML model
+        tank_capacity: Tank capacity in liters
+        initial_water_level: Starting water level
+        initial_moisture: Starting soil moisture
+        plant_area: Plant area in m²
+        scenario: Scenario name (best-case, average-case, worst-case)
+        plan: Tuple of pump levels for each day (0, 1, or 2)
+        use_conformal_uncertainty: Whether to use conformal prediction for scenarios
+        
+    Returns:
+        (tank_results, soil_results) lists of daily dictionaries
+    """
     tank_results: List[Dict] = []
     soil_results: List[Dict] = []
 
     df_forecast = df_forecast.sort_values("date").reset_index(drop=True)
 
+    # Initialize state with scenario adjustments
     water_level_today = initial_water_level
-    water_level_previous = initial_water_level
-    water_level_previous = case_value_multiplicator(scenario, water_level_previous, "water_level_previous")
+    water_level_previous = case_value_multiplicator(
+        scenario, initial_water_level, "water_level_previous"
+    )
     moisture_today = initial_moisture
-    moisture_previous = initial_moisture
-    moisture_previous = case_value_multiplicator(scenario, moisture_previous, "soil_moisture_previous")
+    moisture_previous = case_value_multiplicator(
+        scenario, initial_moisture, "soil_moisture_previous"
+    )
 
     irrigation_history: List[float] = [0.0] * forecast_days
 
-    water_level = initial_water_level
-    moisture = initial_moisture
+    # Get uncertainty estimator
+    uncertainty = get_uncertainty_estimator(use_conformal=use_conformal_uncertainty)
 
     for i, row in df_forecast.iterrows():
         date = row["date"].strftime("%Y-%m-%d")
@@ -67,6 +91,7 @@ def run_forecast_period(
             temp_tomorrow = temp_today
             rain_tomorrow = rain_today
 
+        # Apply scenario adjustments to inputs (legacy behavior, kept for compatibility)
         temp_today = case_value_multiplicator(scenario, temp_today, "temp_today")
         rain_today = case_value_multiplicator(scenario, rain_today, "rain_today")
         temp_tomorrow = case_value_multiplicator(scenario, temp_tomorrow, "temp_tomorrow")
@@ -79,19 +104,21 @@ def run_forecast_period(
         if i < len(plan):
             pumps_today = plan[i]
         else:
-            pumps_today = plan[-1]
+            pumps_today = plan[-1] if plan else 0
 
-        Qout_l = pumps_today * 1.5
-        Qout_l_final = min(Qout_l, water_level_previous + water_inflow)
+        # Calculate outflow with physics constraint
+        Qout_l = pumps_today * LITERS_PER_PUMP_LEVEL
+        max_available = tank_physics.compute_max_outflow(water_level_previous, water_inflow)
+        Qout_l_final = min(Qout_l, max_available)
         Qout_mm = Qout_l_final / plant_area
 
         irrigation_history = irrigation_history[1:] + [Qout_l_final]
         irrigation_last_h_days = sum(irrigation_history)
 
         pump_usage = pumps_today
-
         irrigation_today = Qout_l_final
 
+        # Build feature row for ML model (unchanged feature interface!)
         feature_row = {
             "soil_moisture": moisture_today,
             "water_level": water_level_today,
@@ -99,7 +126,6 @@ def run_forecast_period(
             "water_level_prev": water_level_previous,
             "day_of_year": day_of_year,
             "month": month,
-            "tank_capacity": tank_capacity,
             "temp_today": temp_today,
             "rain_today": rain_today,
             "temp_tomorrow": temp_tomorrow,
@@ -112,29 +138,42 @@ def run_forecast_period(
 
         X_infer = pd.DataFrame([feature_row])[X_feature_cols]
         pred = ml_model.predict(X_infer)
-        water_level += float(pred[0][0])
-        moisture += float(pred[0][1])
-        # this will be used when data is better,
-        # then the model learns the relationship between pump_usage and soil_moisture
+        
+        # ML predictions (used as residuals now)
+        ml_tank_delta = float(pred[0][0])
+        ml_soil_residual = float(pred[0][1])
 
-        k_irrig = 1.5  # wie stark 1 mm Bewässerung die Bodenfeuchte erhöht
-        k_rain = 0.3  # wie stark sich 1 mm Regen auswirken
-        k_evap = 0.4  # Stärke der Verdunstung
-
-        temp_factor = max(0.0, temp_today / 30.0)
-        M_t_phys = (
-                moisture_today
-                + k_irrig * Qout_mm  # Bewässerung
-                + k_rain * rain_today  # Regen
-                - k_evap * temp_factor  # Verdunstung
+        # =====================================================================
+        # PHYSICS-FIRST TANK CALCULATION (Mass Balance)
+        # =====================================================================
+        W_t_final, overflow_l = tank_physics.update(
+            tank_level_prev=water_level_previous,
+            inflow_l=water_inflow,
+            outflow_l=Qout_l_final,
+            tank_capacity=tank_capacity,
+        )
+        
+        # Apply conformal uncertainty adjustment to tank prediction
+        W_t_final = uncertainty.apply_to_tank_prediction(
+            W_t_final, scenario, tank_capacity
         )
 
-        # M_t_ml = max(0.0, min(100.0, M_t_phys))
-
-        W_t_final = max(0.0, min(tank_capacity, water_level))
-        overflow_l = max(0.0, water_level - tank_capacity)
-
-        moisture = max(0.0, min(100.00, moisture))
+        # =====================================================================
+        # PHYSICS-FIRST SOIL CALCULATION (Bucket/ET0-proxy with bounded ML)
+        # =====================================================================
+        moisture = soil_physics.update(
+            soil_moisture_prev=moisture_previous,
+            irrigation_mm=Qout_mm,
+            rain_mm=rain_today,
+            temp_c=temp_today,
+            ml_residual=ml_soil_residual,
+            max_residual_fraction=ML_RESIDUAL_MAX_FRACTION,
+        )
+        
+        # Apply conformal uncertainty adjustment to soil prediction
+        moisture = uncertainty.apply_to_soil_prediction(
+            moisture, scenario
+        )
 
         tank_result = {
             "date": date,
@@ -153,6 +192,7 @@ def run_forecast_period(
         tank_results.append(tank_result)
         soil_results.append(soil_result)
 
+        # Update state for next iteration
         water_level_previous = water_level_today
         moisture_previous = moisture_today
 
@@ -160,3 +200,118 @@ def run_forecast_period(
         moisture_today = moisture
 
     return tank_results, soil_results
+
+
+def simulate_single_day(
+        tank_level_prev: float,
+        moisture_prev: float,
+        action: int,
+        day_data: pd.Series,
+        next_day_data: pd.Series,
+        ml_model: Any,
+        tank_capacity: float,
+        plant_area: float,
+        scenario: str,
+        irrigation_history: List[float],
+        use_conformal_uncertainty: bool = True,
+) -> Tuple[Dict, Dict, float, float]:
+    """
+    Simulate a single day for beam search.
+    
+    This is a lighter-weight version of run_forecast_period for single-day
+    simulation during beam search expansion.
+    
+    Returns:
+        (tank_result, soil_result, new_tank_level, new_soil_moisture)
+    """
+    date = day_data["date"].strftime("%Y-%m-%d") if hasattr(day_data["date"], "strftime") else str(day_data["date"])
+    temp_today = float(day_data["Tmax_c"])
+    rain_today = float(day_data["rain_sum"])
+    water_inflow = float(day_data["total_m3"] * 1000.0)
+
+    if next_day_data is not None:
+        temp_tomorrow = float(next_day_data["Tmax_c"])
+        rain_tomorrow = float(next_day_data["rain_sum"])
+    else:
+        temp_tomorrow = temp_today
+        rain_tomorrow = rain_today
+
+    # Apply scenario adjustments
+    temp_today = case_value_multiplicator(scenario, temp_today, "temp_today")
+    rain_today = case_value_multiplicator(scenario, rain_today, "rain_today")
+    temp_tomorrow = case_value_multiplicator(scenario, temp_tomorrow, "temp_tomorrow")
+    rain_tomorrow = case_value_multiplicator(scenario, rain_tomorrow, "rain_tomorrow")
+    water_inflow = case_value_multiplicator(scenario, water_inflow, "inflow_l")
+
+    day_of_year = day_data["date"].timetuple().tm_yday if hasattr(day_data["date"], "timetuple") else 1
+    month = day_data["date"].month if hasattr(day_data["date"], "month") else 1
+
+    # Calculate outflow
+    Qout_l = action * LITERS_PER_PUMP_LEVEL
+    max_available = tank_physics.compute_max_outflow(tank_level_prev, water_inflow)
+    Qout_l_final = min(Qout_l, max_available)
+    Qout_mm = Qout_l_final / plant_area
+
+    irrigation_last_h_days = sum(irrigation_history[-7:]) if irrigation_history else 0.0
+
+    # Build feature row
+    feature_row = {
+        "soil_moisture": moisture_prev,
+        "water_level": tank_level_prev,
+        "soil_moisture_prev": moisture_prev,
+        "water_level_prev": tank_level_prev,
+        "day_of_year": day_of_year,
+        "month": month,
+        "temp_today": temp_today,
+        "rain_today": rain_today,
+        "temp_tomorrow": temp_tomorrow,
+        "rain_tomorrow": rain_tomorrow,
+        "irrigation_last_h_days": irrigation_last_h_days,
+        "pump_usage": action,
+        "calculated_total_l": water_inflow,
+        "irrigation_today": Qout_l_final,
+    }
+
+    X_infer = pd.DataFrame([feature_row])[X_feature_cols]
+    pred = ml_model.predict(X_infer)
+    ml_soil_residual = float(pred[0][1])
+
+    # Physics-first tank calculation
+    new_tank, overflow_l = tank_physics.update(
+        tank_level_prev=tank_level_prev,
+        inflow_l=water_inflow,
+        outflow_l=Qout_l_final,
+        tank_capacity=tank_capacity,
+    )
+
+    # Physics-first soil calculation with bounded ML residual
+    new_soil = soil_physics.update(
+        soil_moisture_prev=moisture_prev,
+        irrigation_mm=Qout_mm,
+        rain_mm=rain_today,
+        temp_c=temp_today,
+        ml_residual=ml_soil_residual,
+        max_residual_fraction=ML_RESIDUAL_MAX_FRACTION,
+    )
+
+    # Apply uncertainty adjustments
+    uncertainty = get_uncertainty_estimator(use_conformal=use_conformal_uncertainty)
+    new_tank = uncertainty.apply_to_tank_prediction(new_tank, scenario, tank_capacity)
+    new_soil = uncertainty.apply_to_soil_prediction(new_soil, scenario)
+
+    tank_result = {
+        "date": date,
+        "tank_l": new_tank,
+        "qin_l": water_inflow,
+        "qout_l": Qout_l_final,
+        "overflow_l": overflow_l,
+        "pump_usage": action,
+    }
+
+    soil_result = {
+        "date": date,
+        "soil_mm": new_soil,
+        "irrigation_mm": Qout_mm,
+    }
+
+    return tank_result, soil_result, new_tank, new_soil
