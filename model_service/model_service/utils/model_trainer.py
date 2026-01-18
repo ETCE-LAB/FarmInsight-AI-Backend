@@ -180,11 +180,56 @@ def train_model(use_synthetic_data: bool):
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=False)
 
+    # Calculate residuals for training: residual = true_next - physics_next
+    from .physics_model import TankPhysics, SoilPhysics
+    from .config import (
+        SOIL_K_IRRIG, SOIL_K_RAIN, SOIL_K_EVAP, 
+        DEFAULT_TANK_CAPACITY, DEFAULT_PLANT_AREA
+    )
+
+    tank_phys = TankPhysics()
+    soil_phys = SoilPhysics(k_irrig=SOIL_K_IRRIG, k_rain=SOIL_K_RAIN, k_evap=SOIL_K_EVAP)
+
+    def compute_residuals(X_df, y_df):
+        res_tank = []
+        res_soil = []
+        for (i, row), (_, y_row) in zip(X_df.iterrows(), y_df.iterrows()):
+            # Physics next values
+            p_tank_next, _ = tank_phys.update(
+                tank_level_prev=row["water_level"],
+                inflow_l=row["calculated_total_l"],
+                outflow_l=row["irrigation_today"],
+                tank_capacity=DEFAULT_TANK_CAPACITY
+            )
+            p_soil_next = soil_phys.compute_base(
+                soil_moisture_prev=row["soil_moisture"],
+                irrigation_mm=row["irrigation_today"] / DEFAULT_PLANT_AREA,
+                rain_mm=row["rain_today"],
+                temp_c=row["temp_today"]
+            )
+            # Clip soil physics to Match inference 0..100
+            p_soil_next = max(0.0, min(100.0, p_soil_next))
+
+            # True absolute next values
+            t_tank_next = row["water_level"] + y_row["delta_water_level"]
+            t_soil_next = row["soil_moisture"] + y_row["delta_soil_moisture"]
+
+            res_tank.append(t_tank_next - p_tank_next)
+            res_soil.append(t_soil_next - p_soil_next)
+        
+        return pd.DataFrame({
+            "residual_water_level": res_tank,
+            "residual_soil_moisture": res_soil
+        }, index=X_df.index)
+
+    y_train_res = compute_residuals(X_train, y_train)
+    y_test_res = compute_residuals(X_test, y_test)
+
     model_type, model = get_model(len(X_train))
 
     multi_model = MultiOutputRegressor(model)
 
-    multi_model.fit(X_train, y_train)
+    multi_model.fit(X_train, y_train_res)
 
     best_params_water_level = multi_model.estimators_[0].best_params_
     best_params_soil_moisture = multi_model.estimators_[1].best_params_
@@ -194,6 +239,6 @@ def train_model(use_synthetic_data: bool):
                                    "trained_models/synthetic_model.pkl" if use_synthetic_data else "trained_models/model.pkl"))
 
     y_pred = multi_model.predict(X_test)
-    final_r2_score = r2_score(y_test, y_pred, multioutput='uniform_average')
+    final_r2_score = r2_score(y_test_res, y_pred, multioutput='uniform_average')
 
     return training_info(len_X, len_y, model_type, best_params_water_level, best_params_soil_moisture, final_r2_score)

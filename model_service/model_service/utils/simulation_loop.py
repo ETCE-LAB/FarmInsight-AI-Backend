@@ -3,20 +3,18 @@ Simulation loop for water management forecast.
 
 Refactored to use physics-first calculations with bounded ML residuals.
 """
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
 from .config import (
-    SOIL_K_IRRIG,
-    SOIL_K_RAIN,
-    SOIL_K_EVAP,
-    ML_RESIDUAL_MAX_FRACTION,
+    ML_RESIDUAL_MAX_FRACTION, USE_CONFORMAL_UNCERTAINTY,
+    SOIL_K_IRRIG, SOIL_K_RAIN, SOIL_K_EVAP,
     LITERS_PER_PUMP_LEVEL,
 )
 from .model_trainer import X_feature_cols
-from .physics_model import TankPhysics, SoilPhysics
-from .uncertainty import case_value_multiplicator, get_uncertainty_estimator
+from .physics_model import SoilPhysics, TankPhysics
+from .uncertainty import ConformalUncertainty, case_value_multiplicator, get_uncertainty_estimator
 
 
 # Initialize physics models
@@ -29,56 +27,40 @@ soil_physics = SoilPhysics(
 
 
 def run_forecast_period(
-        df_forecast: pd.DataFrame,
-        forecast_days: int,
-        ml_model: Any,
-        tank_capacity: float,
-        initial_water_level: float,
-        initial_moisture: float,
-        plant_area: float,
-        scenario: str,
-        plan: Tuple[int, ...],
-        use_conformal_uncertainty: bool = True,
+    df_forecast: pd.DataFrame,
+    forecast_days: int,
+    ml_model: Any,
+    tank_capacity: float,
+    initial_water_level: float,
+    initial_moisture: float,
+    plant_area: float,
+    scenario: str,
+    plan: Tuple[int, ...],
+    use_conformal_uncertainty: bool = True,
 ) -> Tuple[List[Dict], List[Dict]]:
-    """
-    Run forecast simulation for a given irrigation plan.
-    
-    Args:
-        df_forecast: Weather forecast DataFrame
-        forecast_days: Number of days to forecast
-        ml_model: Trained ML model
-        tank_capacity: Tank capacity in liters
-        initial_water_level: Starting water level
-        initial_moisture: Starting soil moisture
-        plant_area: Plant area in m²
-        scenario: Scenario name (best-case, average-case, worst-case)
-        plan: Tuple of pump levels for each day (0, 1, or 2)
-        use_conformal_uncertainty: Whether to use conformal prediction for scenarios
-        
-    Returns:
-        (tank_results, soil_results) lists of daily dictionaries
-    """
     tank_results: List[Dict] = []
     soil_results: List[Dict] = []
 
+    # Rolling irrigation history (liters)
+    irrigation_history: List[float] = []
+
     df_forecast = df_forecast.sort_values("date").reset_index(drop=True)
 
-    # Initialize state with scenario adjustments
-    water_level_today = initial_water_level
-    water_level_previous = case_value_multiplicator(
-        scenario, initial_water_level, "water_level_previous"
-    )
-    moisture_today = initial_moisture
-    moisture_previous = case_value_multiplicator(
-        scenario, initial_moisture, "soil_moisture_previous"
-    )
+    # State (today = current step, previous = t-1 for features)
+    water_level_today = float(initial_water_level)
+    moisture_today = float(initial_moisture)
 
-    irrigation_history: List[float] = [0.0] * forecast_days
+    if use_conformal_uncertainty:
+        water_level_previous = float(initial_water_level)
+        moisture_previous = float(initial_moisture)
+    else:
+        water_level_previous = float(case_value_multiplicator(scenario, initial_water_level, "water_level_previous"))
+        moisture_previous = float(case_value_multiplicator(scenario, initial_moisture, "soil_moisture_previous"))
 
-    # Get uncertainty estimator
     uncertainty = get_uncertainty_estimator(use_conformal=use_conformal_uncertainty)
 
-    for i, row in df_forecast.iterrows():
+    # Iterate over forecast (cap to forecast_days if df is longer)
+    for i, row in df_forecast.iloc[:forecast_days].iterrows():
         date = row["date"].strftime("%Y-%m-%d")
         temp_today = float(row["Tmax_c"])
         rain_today = float(row["rain_sum"])
@@ -91,34 +73,29 @@ def run_forecast_period(
             temp_tomorrow = temp_today
             rain_tomorrow = rain_today
 
-        # Apply scenario adjustments to inputs (legacy behavior, kept for compatibility)
-        temp_today = case_value_multiplicator(scenario, temp_today, "temp_today")
-        rain_today = case_value_multiplicator(scenario, rain_today, "rain_today")
-        temp_tomorrow = case_value_multiplicator(scenario, temp_tomorrow, "temp_tomorrow")
-        rain_tomorrow = case_value_multiplicator(scenario, rain_tomorrow, "rain_tomorrow")
-        water_inflow = case_value_multiplicator(scenario, water_inflow, "inflow_l")
+        # Apply legacy scenario multipliers ONLY when conformal is OFF
+        if not use_conformal_uncertainty:
+            temp_today = float(case_value_multiplicator(scenario, temp_today, "temp_today"))
+            rain_today = float(case_value_multiplicator(scenario, rain_today, "rain_today"))
+            temp_tomorrow = float(case_value_multiplicator(scenario, temp_tomorrow, "temp_tomorrow"))
+            rain_tomorrow = float(case_value_multiplicator(scenario, rain_tomorrow, "rain_tomorrow"))
+            water_inflow = float(case_value_multiplicator(scenario, water_inflow, "inflow_l"))
 
         day_of_year = row["date"].timetuple().tm_yday
         month = row["date"].month
 
-        if i < len(plan):
-            pumps_today = plan[i]
-        else:
-            pumps_today = plan[-1] if plan else 0
+        pumps_today = int(plan[i]) if i < len(plan) else (int(plan[-1]) if plan else 0)
 
-        # Calculate outflow with physics constraint
+        # Outflow constraint uses CURRENT tank level (today)
         Qout_l = pumps_today * LITERS_PER_PUMP_LEVEL
-        max_available = tank_physics.compute_max_outflow(water_level_previous, water_inflow)
+        max_available = tank_physics.compute_max_outflow(water_level_today, water_inflow)
         Qout_l_final = min(Qout_l, max_available)
         Qout_mm = Qout_l_final / plant_area
 
-        irrigation_history = irrigation_history[1:] + [Qout_l_final]
+        # Feature: sum of last H days (excluding "today", because we append after building features)
         irrigation_last_h_days = sum(irrigation_history)
 
-        pump_usage = pumps_today
-        irrigation_today = Qout_l_final
-
-        # Build feature row for ML model (unchanged feature interface!)
+        # Build feature row (stable feature interface)
         feature_row = {
             "soil_moisture": moisture_today,
             "water_level": water_level_today,
@@ -131,89 +108,90 @@ def run_forecast_period(
             "temp_tomorrow": temp_tomorrow,
             "rain_tomorrow": rain_tomorrow,
             "irrigation_last_h_days": irrigation_last_h_days,
-            "pump_usage": pump_usage,
+            "pump_usage": pumps_today,
             "calculated_total_l": water_inflow,
-            "irrigation_today": irrigation_today,
+            "irrigation_today": Qout_l_final,
         }
 
         X_infer = pd.DataFrame([feature_row])[X_feature_cols]
         pred = ml_model.predict(X_infer)
-        
-        # ML predictions (used as residuals now)
-        ml_tank_delta = float(pred[0][0])
-        ml_soil_residual = float(pred[0][1])
+        ml_tank_res = float(pred[0][0])
+        ml_soil_res = float(pred[0][1])
 
-        # =====================================================================
-        # PHYSICS-FIRST TANK CALCULATION (Mass Balance)
-        # =====================================================================
-        W_t_final, overflow_l = tank_physics.update(
-            tank_level_prev=water_level_previous,
-            inflow_l=water_inflow,
-            outflow_l=Qout_l_final,
-            tank_capacity=tank_capacity,
-        )
-        
-        # Apply conformal uncertainty adjustment to tank prediction
-        W_t_final = uncertainty.apply_to_tank_prediction(
-            W_t_final, scenario, tank_capacity
-        )
+        # Clamp ML residuals
+        max_tank_corr = ML_RESIDUAL_MAX_FRACTION * tank_capacity
+        clamped_tank_res = max(-max_tank_corr, min(max_tank_corr, ml_tank_res))
 
-        # =====================================================================
-        # PHYSICS-FIRST SOIL CALCULATION (Bucket/ET0-proxy with bounded ML)
-        # =====================================================================
-        moisture = soil_physics.update(
-            soil_moisture_prev=moisture_previous,
+        # Physics-first tank update uses CURRENT tank level (today)
+        raw_tank = water_level_today + water_inflow - Qout_l_final
+        new_tank_val = max(0.0, min(tank_capacity, raw_tank + clamped_tank_res))
+        overflow_l = max(0.0, raw_tank - tank_capacity)
+
+        # Physics-first soil update uses CURRENT soil moisture (today)
+        soil_base = soil_physics.update(
+            soil_moisture_prev=moisture_today,
             irrigation_mm=Qout_mm,
             rain_mm=rain_today,
             temp_c=temp_today,
-            ml_residual=ml_soil_residual,
-            max_residual_fraction=ML_RESIDUAL_MAX_FRACTION,
         )
-        
-        # Apply conformal uncertainty adjustment to soil prediction
-        moisture = uncertainty.apply_to_soil_prediction(
-            moisture, scenario
-        )
+        max_soil_corr = ML_RESIDUAL_MAX_FRACTION * max(1.0, abs(soil_base))
+        clamped_soil_res = max(-max_soil_corr, min(max_soil_corr, ml_soil_res))
+        moisture_pred = max(0.0, min(100.0, soil_base + clamped_soil_res))
+
+        # Apply uncertainty ONLY when conformal is ON
+        if use_conformal_uncertainty:
+            water_level_next = uncertainty.apply_to_tank_prediction(new_tank_val, scenario, tank_capacity)
+            moisture_next = uncertainty.apply_to_soil_prediction(moisture_pred, scenario)
+        else:
+            water_level_next = new_tank_val
+            moisture_next = moisture_pred
 
         tank_result = {
             "date": date,
-            "tank_l": W_t_final,
-            "qin_l": water_inflow,
-            "qout_l": Qout_l_final,
-            "overflow_l": overflow_l,
-            "pump_usage": pump_usage
+            "tank_l": float(water_level_next),
+            "qin_l": float(water_inflow),
+            "qout_l": float(Qout_l_final),
+            "overflow_l": float(overflow_l),
+            "pump_usage": int(pumps_today),
         }
         soil_result = {
             "date": date,
-            "soil_mm": moisture,
-            "irrigation_mm": Qout_mm,
+            "soil_mm": float(moisture_next),
+            "irrigation_mm": float(Qout_mm),
         }
 
         tank_results.append(tank_result)
         soil_results.append(soil_result)
 
-        # Update state for next iteration
+        # Update irrigation history window AFTER using it for features
+        irrigation_history.append(float(Qout_l_final))
+        if len(irrigation_history) > forecast_days:
+            irrigation_history.pop(0)
+
+        # Shift state: today becomes previous, next becomes today
         water_level_previous = water_level_today
         moisture_previous = moisture_today
-
-        water_level_today = W_t_final
-        moisture_today = moisture
+        water_level_today = float(water_level_next)
+        moisture_today = float(moisture_next)
 
     return tank_results, soil_results
 
 
 def simulate_single_day(
-        tank_level_prev: float,
-        moisture_prev: float,
-        action: int,
-        day_data: pd.Series,
-        next_day_data: pd.Series,
-        ml_model: Any,
-        tank_capacity: float,
-        plant_area: float,
-        scenario: str,
-        irrigation_history: List[float],
-        use_conformal_uncertainty: bool = True,
+    tank_level_prev: float,
+    moisture_prev: float,
+    tank_level_pp: float,
+    moisture_pp: float,
+    action: int,
+    day_data: pd.Series,
+    next_day_data: Optional[pd.Series],
+    ml_model: Any,
+    tank_capacity: float,
+    plant_area: float,
+    scenario: str,
+    use_conformal_uncertainty: bool = True,
+    uncertainty_estimator: Optional[ConformalUncertainty] = None,
+    irrigation_history: Optional[List[float]] = None,
 ) -> Tuple[Dict, Dict, float, float]:
     """
     Simulate a single day for beam search.
@@ -236,12 +214,14 @@ def simulate_single_day(
         temp_tomorrow = temp_today
         rain_tomorrow = rain_today
 
-    # Apply scenario adjustments
-    temp_today = case_value_multiplicator(scenario, temp_today, "temp_today")
-    rain_today = case_value_multiplicator(scenario, rain_today, "rain_today")
-    temp_tomorrow = case_value_multiplicator(scenario, temp_tomorrow, "temp_tomorrow")
-    rain_tomorrow = case_value_multiplicator(scenario, rain_tomorrow, "rain_tomorrow")
-    water_inflow = case_value_multiplicator(scenario, water_inflow, "inflow_l")
+    # Scenario Adjustments (Legacy Multiplier approach)
+    # ONLY if conformal uncertainty is NOT used
+    if not use_conformal_uncertainty:
+        rain_today = case_value_multiplicator(scenario, rain_today, "rain_today")
+        temp_today = case_value_multiplicator(scenario, temp_today, "temp_today")
+        temp_tomorrow = case_value_multiplicator(scenario, temp_tomorrow, "temp_tomorrow")
+        rain_tomorrow = case_value_multiplicator(scenario, rain_tomorrow, "rain_tomorrow")
+        water_inflow = case_value_multiplicator(scenario, water_inflow, "inflow_l")
 
     day_of_year = day_data["date"].timetuple().tm_yday if hasattr(day_data["date"], "timetuple") else 1
     month = day_data["date"].month if hasattr(day_data["date"], "month") else 1
@@ -252,14 +232,17 @@ def simulate_single_day(
     Qout_l_final = min(Qout_l, max_available)
     Qout_mm = Qout_l_final / plant_area
 
-    irrigation_last_h_days = sum(irrigation_history[-7:]) if irrigation_history else 0.0
+    # Dynamic features for the model
+    # Use fixed window H=7
+    hist = irrigation_history or []
+    irrigation_last_h_days = sum(hist[-7:])
 
     # Build feature row
     feature_row = {
         "soil_moisture": moisture_prev,
         "water_level": tank_level_prev,
-        "soil_moisture_prev": moisture_prev,
-        "water_level_prev": tank_level_prev,
+        "soil_moisture_prev": moisture_pp,
+        "water_level_prev": tank_level_pp,
         "day_of_year": day_of_year,
         "month": month,
         "temp_today": temp_today,
@@ -271,33 +254,40 @@ def simulate_single_day(
         "calculated_total_l": water_inflow,
         "irrigation_today": Qout_l_final,
     }
-
+    # ML Predictions (Residuals)
     X_infer = pd.DataFrame([feature_row])[X_feature_cols]
     pred = ml_model.predict(X_infer)
-    ml_soil_residual = float(pred[0][1])
+    ml_tank_res = float(pred[0][0])
+    ml_soil_res = float(pred[0][1])
 
-    # Physics-first tank calculation
-    new_tank, overflow_l = tank_physics.update(
-        tank_level_prev=tank_level_prev,
-        inflow_l=water_inflow,
-        outflow_l=Qout_l_final,
-        tank_capacity=tank_capacity,
-    )
+    # ML Tank residual application with clamping
+    max_tank_corr = ML_RESIDUAL_MAX_FRACTION * tank_capacity
+    clamped_tank_res = max(-max_tank_corr, min(max_tank_corr, ml_tank_res))
+
+    # Physics-first tank calculation (Mass Balance)
+    raw_tank = tank_level_prev + water_inflow - Qout_l_final
+    new_tank = max(0.0, min(tank_capacity, raw_tank + clamped_tank_res))
+    overflow_l = max(0.0, raw_tank - tank_capacity)
 
     # Physics-first soil calculation with bounded ML residual
-    new_soil = soil_physics.update(
+    soil_base = soil_physics.update(
         soil_moisture_prev=moisture_prev,
         irrigation_mm=Qout_mm,
         rain_mm=rain_today,
-        temp_c=temp_today,
-        ml_residual=ml_soil_residual,
-        max_residual_fraction=ML_RESIDUAL_MAX_FRACTION,
+        temp_c=temp_today
     )
+    
+    max_soil_corr = ML_RESIDUAL_MAX_FRACTION * max(1.0, abs(soil_base))
+    clamped_soil_res = max(-max_soil_corr, min(max_soil_corr, ml_soil_res))
+    new_soil = max(0.0, min(100.0, soil_base + clamped_soil_res))
 
     # Apply uncertainty adjustments
-    uncertainty = get_uncertainty_estimator(use_conformal=use_conformal_uncertainty)
-    new_tank = uncertainty.apply_to_tank_prediction(new_tank, scenario, tank_capacity)
-    new_soil = uncertainty.apply_to_soil_prediction(new_soil, scenario)
+    uncertainty = uncertainty_estimator or get_uncertainty_estimator(use_conformal=use_conformal_uncertainty)
+    
+    # We apply uncertainty only to output predictions if conformal is used
+    if use_conformal_uncertainty:
+        new_tank = uncertainty.apply_to_tank_prediction(new_tank, scenario, tank_capacity)
+        new_soil = uncertainty.apply_to_soil_prediction(new_soil, scenario)
 
     tank_result = {
         "date": date,

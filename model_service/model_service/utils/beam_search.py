@@ -15,7 +15,10 @@ class BeamState:
     partial_plan: Tuple[int, ...]  # Actions taken so far (0, 1, or 2 per day)
     tank_level: float
     soil_moisture: float
-    cumulative_score: float
+    tank_level_prev: float
+    soil_moisture_prev: float
+    cumulative_score: float  # True score (actual rewards/costs)
+    lookahead_score: float = 0.0  # Heuristic score for future potential
     tank_results: List[Dict] = field(default_factory=list)
     soil_results: List[Dict] = field(default_factory=list)
     
@@ -48,12 +51,14 @@ class BeamSearchOptimizer:
         lookahead_enabled: bool = True,
         adaptive_beam: bool = False,
         greedy_fallback_days: int = 14,
+        lambda_heuristic: float = 0.5,
     ):
         self.beam_width = beam_width
         self.diversity_buckets = diversity_buckets
         self.lookahead_enabled = lookahead_enabled
         self.adaptive_beam = adaptive_beam
         self.greedy_fallback_days = greedy_fallback_days
+        self.lambda_heuristic = lambda_heuristic
     
     def get_beam_width_for_day(self, day: int, total_days: int) -> int:
         """Get beam width for specific day (adaptive or fixed)."""
@@ -97,11 +102,8 @@ class BeamSearchOptimizer:
         """
         forecast_days = len(df_forecast)
         
-        # Greedy fallback for very long horizons
-        if forecast_days > self.greedy_fallback_days:
-            effective_beam_width = 1
-        else:
-            effective_beam_width = self.beam_width
+        #df_forecast = df_forecast.sort_values("date").reset_index(drop=True)
+        # Note: current_beam_width will be set inside the loop via get_beam_width_for_day
         
         df_forecast = df_forecast.sort_values("date").reset_index(drop=True)
         
@@ -110,7 +112,10 @@ class BeamSearchOptimizer:
             partial_plan=(),
             tank_level=initial_tank_level,
             soil_moisture=initial_moisture,
+            tank_level_prev=initial_tank_level,
+            soil_moisture_prev=initial_moisture,
             cumulative_score=0.0,
+            lookahead_score=0.0,
             tank_results=[],
             soil_results=[],
         )
@@ -134,6 +139,8 @@ class BeamSearchOptimizer:
                     tank_result, soil_result, new_tank, new_soil = simulate_day_fn(
                         tank_level_prev=state.tank_level,
                         moisture_prev=state.soil_moisture,
+                        tank_level_pp=state.tank_level_prev,
+                        moisture_pp=state.soil_moisture_prev,
                         action=action,
                         day_data=day_data,
                         next_day_data=next_day_data,
@@ -141,7 +148,7 @@ class BeamSearchOptimizer:
                         tank_capacity=tank_capacity,
                         plant_area=plant_area,
                         scenario=scenario,
-                        irrigation_history=self._get_irrigation_history(state, forecast_days),
+                        irrigation_history=self._get_irrigation_history(state),
                     )
                     
                     # Compute day score
@@ -151,6 +158,8 @@ class BeamSearchOptimizer:
                         partial_plan=state.partial_plan + (action,),
                         tank_level=new_tank,
                         soil_moisture=new_soil,
+                        tank_level_prev=state.tank_level,
+                        soil_moisture_prev=state.soil_moisture,
                         cumulative_score=state.cumulative_score + day_score,
                         tank_results=state.tank_results + [tank_result],
                         soil_results=state.soil_results + [soil_result],
@@ -158,29 +167,24 @@ class BeamSearchOptimizer:
                     
                     # Add lookahead score if enabled and not last day
                     if self.lookahead_enabled and day_idx < forecast_days - 1:
-                        lookahead_score = self._greedy_lookahead(
+                        new_state.lookahead_score = self._greedy_lookahead(
                             new_state, df_forecast, day_idx + 1, simulate_day_fn, 
                             score_day_fn, ml_model, tank_capacity, plant_area, scenario,
                             forecast_days
                         )
-                        new_state.cumulative_score += lookahead_score * 0.5  # Discount lookahead
                     
                     candidates.append(new_state)
             
-            # Prune beam with diversity preservation
-            beam = self._prune_beam(candidates, current_beam_width)
+            # Prune and Preserve Diversity
+            beam = self._prune_beam(candidates, current_beam_width, tank_capacity=tank_capacity)
         
-        # Return best final state
+        # Return best final state based on ACTUAL cumulative_score
         best_state = max(beam, key=lambda s: s.cumulative_score)
         return best_state.partial_plan, best_state.tank_results, best_state.soil_results
     
-    def _get_irrigation_history(self, state: BeamState, forecast_days: int) -> List[float]:
+    def _get_irrigation_history(self, state: BeamState) -> List[float]:
         """Extract irrigation history from state for feature computation."""
-        history = [0.0] * forecast_days
-        for i, result in enumerate(state.soil_results):
-            if i < len(history):
-                history[i] = result.get("irrigation_mm", 0.0) * 8.0  # Convert back to liters approx
-        return history
+        return [float(r.get("qout_l", 0.0)) for r in state.tank_results]
     
     def _greedy_lookahead(
         self,
@@ -199,10 +203,14 @@ class BeamSearchOptimizer:
         Fast greedy rollout to estimate remaining score.
         Uses single best action per remaining day.
         """
-        current_tank = state.tank_level
-        current_soil = state.soil_moisture
-        lookahead_score = 0.0
-        temp_results = list(state.soil_results)
+        temp_tank_results = list(state.tank_results)
+        temp_soil_results = list(state.soil_results)
+        
+        current_tank_level = state.tank_level
+        current_moisture = state.soil_moisture
+        current_tank_prev = state.tank_level_prev
+        current_moisture_prev = state.soil_moisture_prev
+        lookahead_total = 0.0
         
         for day_idx in range(start_day, len(df_forecast)):
             day_data = df_forecast.iloc[day_idx]
@@ -213,9 +221,11 @@ class BeamSearchOptimizer:
             
             # Find greedy-best action
             for action in self.ACTIONS:
-                tank_result, soil_result, new_tank, new_soil = simulate_day_fn(
-                    tank_level_prev=current_tank,
-                    moisture_prev=current_soil,
+                tank_result, soil_result, n_tank, n_soil = simulate_day_fn(
+                    tank_level_prev=current_tank_level,
+                    moisture_prev=current_moisture,
+                    tank_level_pp=current_tank_prev,
+                    moisture_pp=current_moisture_prev,
                     action=action,
                     day_data=day_data,
                     next_day_data=next_day_data,
@@ -223,22 +233,29 @@ class BeamSearchOptimizer:
                     tank_capacity=tank_capacity,
                     plant_area=plant_area,
                     scenario=scenario,
-                    irrigation_history=[r.get("irrigation_mm", 0.0) * 8.0 for r in temp_results] + [0.0] * (forecast_days - len(temp_results)),
+                    irrigation_history=[float(r.get("qout_l", 0.0)) for r in temp_tank_results],
                 )
                 
                 action_score = score_day_fn(tank_result, soil_result)
                 if action_score > best_action_score:
                     best_action_score = action_score
-                    best_result = (tank_result, soil_result, new_tank, new_soil)
+                    best_result = (tank_result, soil_result, n_tank, n_soil)
             
             if best_result:
-                _, soil_result, current_tank, current_soil = best_result
-                lookahead_score += best_action_score
-                temp_results.append(soil_result)
+                tank_result, soil_result, t_next, m_next = best_result
+                lookahead_total += best_action_score
+                
+                # Update rolling context for next lookahead day
+                temp_tank_results.append(tank_result)
+                temp_soil_results.append(soil_result)
+                current_tank_prev = current_tank_level
+                current_moisture_prev = current_moisture
+                current_tank_level = t_next
+                current_moisture = m_next
         
-        return lookahead_score
+        return lookahead_total
     
-    def _prune_beam(self, candidates: List[BeamState], beam_width: int) -> List[BeamState]:
+    def _prune_beam(self, candidates: List[BeamState], beam_width: int, tank_capacity: float) -> List[BeamState]:
         """
         Prune candidates to beam_width, preserving diversity.
         
@@ -249,10 +266,17 @@ class BeamSearchOptimizer:
         if len(candidates) <= beam_width:
             return candidates
         
-        # Sort by score descending
-        sorted_candidates = sorted(candidates, key=lambda s: s.cumulative_score, reverse=True)
+        # Determine bucket sizes from diversity_buckets
+        tank_bucket_size = max(1.0, tank_capacity / max(1, self.diversity_buckets))
+        soil_bucket_size = max(1.0, 100.0 / max(1, self.diversity_buckets))
+
+        # Sort by combined score: true + lambda * heuristic
+        sorted_candidates = sorted(
+            candidates, 
+            key=lambda s: s.cumulative_score + self.lambda_heuristic * s.lookahead_score, 
+            reverse=True
+        )
         
-        # Top candidates by score
         top_count = int(beam_width * 0.8)
         top_states = sorted_candidates[:top_count]
         remaining = sorted_candidates[top_count:]
@@ -260,13 +284,16 @@ class BeamSearchOptimizer:
         # Bucket remaining by state
         buckets: Dict[Tuple[int, int], List[BeamState]] = {}
         for state in remaining:
-            key = state.get_bucket_key()
+            key = state.get_bucket_key(
+                tank_bucket_size=tank_bucket_size, 
+                soil_bucket_size=soil_bucket_size
+            )
             if key not in buckets:
                 buckets[key] = []
             buckets[key].append(state)
         
         # Add diverse states from underrepresented buckets
-        top_buckets = {s.get_bucket_key() for s in top_states}
+        top_buckets = {s.get_bucket_key(tank_bucket_size, soil_bucket_size) for s in top_states}
         diverse_count = beam_width - top_count
         diverse_states: List[BeamState] = []
         
@@ -277,14 +304,12 @@ class BeamSearchOptimizer:
             if bucket_key not in top_buckets:
                 diverse_states.append(bucket_states[0])  # Best from this bucket
         
-        # Fill remaining slots with next best from any bucket
-        all_remaining = [s for states in buckets.values() for s in states]
-        all_remaining.sort(key=lambda s: s.cumulative_score, reverse=True)
-        for state in all_remaining:
-            if len(diverse_states) >= diverse_count:
-                break
-            if state not in diverse_states:
-                diverse_states.append(state)
+        # Fill remaining slots with next best from any bucket if still space
+        if len(diverse_states) < diverse_count:
+            all_remaining = sorted([s for s in remaining if s not in diverse_states], 
+                                  key=lambda s: s.cumulative_score + self.lambda_heuristic * s.lookahead_score,
+                                  reverse=True)
+            diverse_states.extend(all_remaining[:diverse_count - len(diverse_states)])
         
         return top_states + diverse_states
 
@@ -304,6 +329,8 @@ def create_day_simulator(scenario_adjuster: Callable):
     def simulate_day(
         tank_level_prev: float,
         moisture_prev: float,
+        tank_level_pp: float,
+        moisture_pp: float,
         action: int,
         day_data: pd.Series,
         next_day_data: Optional[pd.Series],
@@ -337,18 +364,23 @@ def create_day_simulator(scenario_adjuster: Callable):
         day_of_year = day_data["date"].timetuple().tm_yday if hasattr(day_data["date"], "timetuple") else 1
         month = day_data["date"].month if hasattr(day_data["date"], "month") else 1
         
+        from .config import LITERS_PER_PUMP_LEVEL, ML_RESIDUAL_MAX_FRACTION
+        
         pumps_today = action
-        Qout_l = pumps_today * 1.5
-        Qout_l_final = min(Qout_l, tank_level_prev + water_inflow)
+        Qout_l = pumps_today * LITERS_PER_PUMP_LEVEL
+        # Use physics model logic for max outflow: min(Qout_l, available_water)
+        # available_water = tank_level_prev + water_inflow (simplified mass balance)
+        Qout_l_final = min(Qout_l, max(0.0, tank_level_prev + water_inflow))
         Qout_mm = Qout_l_final / plant_area
         
+        # Consistent window H=7 for irrigation features
         irrigation_last_h_days = sum(irrigation_history[-7:]) if irrigation_history else 0.0
         
         feature_row = {
             "soil_moisture": moisture_prev,
             "water_level": tank_level_prev,
-            "soil_moisture_prev": moisture_prev,
-            "water_level_prev": tank_level_prev,
+            "soil_moisture_prev": moisture_pp,
+            "water_level_prev": tank_level_pp,
             "day_of_year": day_of_year,
             "month": month,
             "temp_today": temp_today,
@@ -364,29 +396,34 @@ def create_day_simulator(scenario_adjuster: Callable):
         X_infer = pd.DataFrame([feature_row])[X_feature_cols]
         pred = ml_model.predict(X_infer)
         
+        # ML Tank Residual
+        from .config import ML_RESIDUAL_MAX_FRACTION
+        ml_tank_res = float(pred[0][0])
+        max_tank_corr = ML_RESIDUAL_MAX_FRACTION * tank_capacity
+        clamped_tank_res = max(-max_tank_corr, min(max_tank_corr, ml_tank_res))
+        
         # Physics-based tank calculation (mass balance)
         raw_tank = tank_level_prev + water_inflow - Qout_l_final
-        new_tank = max(0.0, min(tank_capacity, raw_tank))
+        new_tank = max(0.0, min(tank_capacity, raw_tank + clamped_tank_res))
         overflow_l = max(0.0, raw_tank - tank_capacity)
         
         # Physics-based soil calculation with ML residual
-        k_irrig = 1.5
-        k_rain = 0.3
-        k_evap = 0.4
+        # Use soil_physics compute logic (simplified here but matching physics_model)
+        from .config import SOIL_K_IRRIG, SOIL_K_RAIN, SOIL_K_EVAP
         temp_factor = max(0.0, temp_today / 30.0)
         
         soil_physics = (
             moisture_prev
-            + k_irrig * Qout_mm
-            + k_rain * rain_today
-            - k_evap * temp_factor
+            + SOIL_K_IRRIG * Qout_mm
+            + SOIL_K_RAIN * rain_today
+            - SOIL_K_EVAP * temp_factor
         )
         
-        # ML provides bounded residual correction
-        ml_residual = float(pred[0][1])
-        max_correction = 0.2 * max(1.0, soil_physics)
-        clamped_residual = max(-max_correction, min(max_correction, ml_residual))
-        new_soil = max(0.0, min(100.0, soil_physics + clamped_residual))
+        # ML soil residual
+        ml_soil_res = float(pred[0][1])
+        max_soil_corr = 0.2 * max(1.0, abs(soil_physics))
+        clamped_soil_res = max(-max_soil_corr, min(max_soil_corr, ml_soil_res))
+        new_soil = max(0.0, min(100.0, soil_physics + clamped_soil_res))
         
         tank_result = {
             "date": date,

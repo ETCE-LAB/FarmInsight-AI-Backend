@@ -111,6 +111,8 @@ def _create_day_simulator(scenario: str, tank_capacity: float, plant_area: float
     def simulate(
         tank_level_prev: float,
         moisture_prev: float,
+        tank_level_pp: float,
+        moisture_pp: float,
         action: int,
         day_data: Any,
         next_day_data: Any,
@@ -120,6 +122,8 @@ def _create_day_simulator(scenario: str, tank_capacity: float, plant_area: float
         return simulate_single_day(
             tank_level_prev=tank_level_prev,
             moisture_prev=moisture_prev,
+            tank_level_pp=tank_level_pp,
+            moisture_pp=moisture_pp,
             action=action,
             day_data=day_data,
             next_day_data=next_day_data,

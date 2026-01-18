@@ -19,9 +19,16 @@ ADAPTIVE_BEAM_DEFAULT = True
 
 # Threshold for enabling adaptive beam
 ADAPTIVE_BEAM_THRESHOLD_DAYS = 10
-
-# Number of diversity buckets for state preservation
+LAMBDA_HEURISTIC = 0.5  # Weight for lookahead score during pruning
 DIVERSITY_BUCKETS = 10
+
+# Physics Model Constants
+DEFAULT_TANK_CAPACITY = 1000.0  # Liter
+DEFAULT_PLANT_AREA = 8.0  # m^2
+SOIL_K_IRRIG = 1.5
+SOIL_K_RAIN = 0.3
+SOIL_K_EVAP = 0.4
+ML_RESIDUAL_MAX_FRACTION = 0.2
 
 # Enable lookahead/rollout for better pruning
 LOOKAHEAD_ENABLED = True
