@@ -82,6 +82,7 @@ class BeamSearchOptimizer:
         plant_area: float,
         scenario: str,
         ml_model: Any,
+        forecast_days: int,
     ) -> Tuple[Tuple[int, ...], List[Dict], List[Dict]]:
         """
         Run beam search optimization.
@@ -96,11 +97,11 @@ class BeamSearchOptimizer:
             plant_area: Plant area in m²
             scenario: Scenario name
             ml_model: Trained ML model
+            forecast_days: Number of days to forecast
             
         Returns:
             (best_plan, tank_results, soil_results)
         """
-        forecast_days = len(df_forecast)
         
         #df_forecast = df_forecast.sort_values("date").reset_index(drop=True)
         # Note: current_beam_width will be set inside the loop via get_beam_width_for_day

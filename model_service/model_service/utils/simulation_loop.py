@@ -41,12 +41,11 @@ def run_forecast_period(
     tank_results: List[Dict] = []
     soil_results: List[Dict] = []
 
-    # Rolling irrigation history (liters)
-    irrigation_history: List[float] = []
+    H_WINDOW = 7
+    irrigation_history: List[float] = []  # liters, last H days (excluding today)
 
     df_forecast = df_forecast.sort_values("date").reset_index(drop=True)
 
-    # State (today = current step, previous = t-1 for features)
     water_level_today = float(initial_water_level)
     moisture_today = float(initial_moisture)
 
@@ -59,9 +58,8 @@ def run_forecast_period(
 
     uncertainty = get_uncertainty_estimator(use_conformal=use_conformal_uncertainty)
 
-    # Iterate over forecast (cap to forecast_days if df is longer)
     for i, row in df_forecast.iloc[:forecast_days].iterrows():
-        date = row["date"].strftime("%Y-%m-%d")
+        date = row["date"].strftime("%Y-%m-%d") if hasattr(row["date"], "strftime") else str(row["date"])
         temp_today = float(row["Tmax_c"])
         rain_today = float(row["rain_sum"])
         water_inflow = float(row["total_m3"] * 1000.0)
@@ -73,7 +71,6 @@ def run_forecast_period(
             temp_tomorrow = temp_today
             rain_tomorrow = rain_today
 
-        # Apply legacy scenario multipliers ONLY when conformal is OFF
         if not use_conformal_uncertainty:
             temp_today = float(case_value_multiplicator(scenario, temp_today, "temp_today"))
             rain_today = float(case_value_multiplicator(scenario, rain_today, "rain_today"))
@@ -81,36 +78,33 @@ def run_forecast_period(
             rain_tomorrow = float(case_value_multiplicator(scenario, rain_tomorrow, "rain_tomorrow"))
             water_inflow = float(case_value_multiplicator(scenario, water_inflow, "inflow_l"))
 
-        day_of_year = row["date"].timetuple().tm_yday
-        month = row["date"].month
+        day_of_year = row["date"].timetuple().tm_yday if hasattr(row["date"], "timetuple") else 1
+        month = row["date"].month if hasattr(row["date"], "month") else 1
 
         pumps_today = int(plan[i]) if i < len(plan) else (int(plan[-1]) if plan else 0)
 
-        # Outflow constraint uses CURRENT tank level (today)
-        Qout_l = pumps_today * LITERS_PER_PUMP_LEVEL
-        max_available = tank_physics.compute_max_outflow(water_level_today, water_inflow)
+        irrigation_last_h_days = float(sum(irrigation_history))  # already windowed, excludes today
+
+        Qout_l = float(pumps_today) * float(LITERS_PER_PUMP_LEVEL)
+        max_available = float(tank_physics.compute_max_outflow(water_level_today, water_inflow))
         Qout_l_final = min(Qout_l, max_available)
-        Qout_mm = Qout_l_final / plant_area
+        Qout_mm = float(Qout_l_final) / float(plant_area)
 
-        # Feature: sum of last H days (excluding "today", because we append after building features)
-        irrigation_last_h_days = sum(irrigation_history)
-
-        # Build feature row (stable feature interface)
         feature_row = {
-            "soil_moisture": moisture_today,
-            "water_level": water_level_today,
-            "soil_moisture_prev": moisture_previous,
-            "water_level_prev": water_level_previous,
-            "day_of_year": day_of_year,
-            "month": month,
-            "temp_today": temp_today,
-            "rain_today": rain_today,
-            "temp_tomorrow": temp_tomorrow,
-            "rain_tomorrow": rain_tomorrow,
-            "irrigation_last_h_days": irrigation_last_h_days,
-            "pump_usage": pumps_today,
-            "calculated_total_l": water_inflow,
-            "irrigation_today": Qout_l_final,
+            "soil_moisture": float(moisture_today),
+            "water_level": float(water_level_today),
+            "soil_moisture_prev": float(moisture_previous),
+            "water_level_prev": float(water_level_previous),
+            "day_of_year": int(day_of_year),
+            "month": int(month),
+            "temp_today": float(temp_today),
+            "rain_today": float(rain_today),
+            "temp_tomorrow": float(temp_tomorrow),
+            "rain_tomorrow": float(rain_tomorrow),
+            "irrigation_last_h_days": float(irrigation_last_h_days),
+            "pump_usage": int(pumps_today),
+            "calculated_total_l": float(water_inflow),
+            "irrigation_today": float(Qout_l_final),
         }
 
         X_infer = pd.DataFrame([feature_row])[X_feature_cols]
@@ -118,59 +112,56 @@ def run_forecast_period(
         ml_tank_res = float(pred[0][0])
         ml_soil_res = float(pred[0][1])
 
-        # Clamp ML residuals
-        max_tank_corr = ML_RESIDUAL_MAX_FRACTION * tank_capacity
+        max_tank_corr = float(ML_RESIDUAL_MAX_FRACTION) * float(tank_capacity)
         clamped_tank_res = max(-max_tank_corr, min(max_tank_corr, ml_tank_res))
 
-        # Physics-first tank update uses CURRENT tank level (today)
-        raw_tank = water_level_today + water_inflow - Qout_l_final
-        new_tank_val = max(0.0, min(tank_capacity, raw_tank + clamped_tank_res))
-        overflow_l = max(0.0, raw_tank - tank_capacity)
+        raw_tank = float(water_level_today) + float(water_inflow) - float(Qout_l_final)
+        new_tank_val = max(0.0, min(float(tank_capacity), raw_tank + clamped_tank_res))
+        overflow_l = max(0.0, raw_tank - float(tank_capacity))
 
-        # Physics-first soil update uses CURRENT soil moisture (today)
-        soil_base = soil_physics.update(
-            soil_moisture_prev=moisture_today,
-            irrigation_mm=Qout_mm,
-            rain_mm=rain_today,
-            temp_c=temp_today,
+        soil_base = float(
+            soil_physics.update(
+                soil_moisture_prev=float(moisture_today),
+                irrigation_mm=float(Qout_mm),
+                rain_mm=float(rain_today),
+                temp_c=float(temp_today),
+            )
         )
-        max_soil_corr = ML_RESIDUAL_MAX_FRACTION * max(1.0, abs(soil_base))
+        max_soil_corr = float(ML_RESIDUAL_MAX_FRACTION) * max(1.0, abs(soil_base))
         clamped_soil_res = max(-max_soil_corr, min(max_soil_corr, ml_soil_res))
         moisture_pred = max(0.0, min(100.0, soil_base + clamped_soil_res))
 
-        # Apply uncertainty ONLY when conformal is ON
         if use_conformal_uncertainty:
-            water_level_next = uncertainty.apply_to_tank_prediction(new_tank_val, scenario, tank_capacity)
-            moisture_next = uncertainty.apply_to_soil_prediction(moisture_pred, scenario)
+            water_level_next = float(uncertainty.apply_to_tank_prediction(new_tank_val, scenario, tank_capacity))
+            moisture_next = float(uncertainty.apply_to_soil_prediction(moisture_pred, scenario))
         else:
-            water_level_next = new_tank_val
-            moisture_next = moisture_pred
+            water_level_next = float(new_tank_val)
+            moisture_next = float(moisture_pred)
 
-        tank_result = {
-            "date": date,
-            "tank_l": float(water_level_next),
-            "qin_l": float(water_inflow),
-            "qout_l": float(Qout_l_final),
-            "overflow_l": float(overflow_l),
-            "pump_usage": int(pumps_today),
-        }
-        soil_result = {
-            "date": date,
-            "soil_mm": float(moisture_next),
-            "irrigation_mm": float(Qout_mm),
-        }
+        tank_results.append(
+            {
+                "date": date,
+                "tank_l": float(water_level_next),
+                "qin_l": float(water_inflow),
+                "qout_l": float(Qout_l_final),
+                "overflow_l": float(overflow_l),
+                "pump_usage": int(pumps_today),
+            }
+        )
+        soil_results.append(
+            {
+                "date": date,
+                "soil_mm": float(moisture_next),
+                "irrigation_mm": float(Qout_mm),
+            }
+        )
 
-        tank_results.append(tank_result)
-        soil_results.append(soil_result)
-
-        # Update irrigation history window AFTER using it for features
         irrigation_history.append(float(Qout_l_final))
-        if len(irrigation_history) > forecast_days:
+        if len(irrigation_history) > H_WINDOW:
             irrigation_history.pop(0)
 
-        # Shift state: today becomes previous, next becomes today
-        water_level_previous = water_level_today
-        moisture_previous = moisture_today
+        water_level_previous = float(water_level_today)
+        moisture_previous = float(moisture_today)
         water_level_today = float(water_level_next)
         moisture_today = float(moisture_next)
 

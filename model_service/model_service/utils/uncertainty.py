@@ -37,9 +37,9 @@ class ConformalUncertainty:
     }
     
     SCENARIO_QUANTILE_MAP = {
-        "best-case": 0.9,
-        "average-case": 0.5,
-        "worst-case": 0.1,
+        "best_case": 0.9,
+        "average_case": 0.5,
+        "worst_case": 0.1,
     }
     
     def __init__(
@@ -152,19 +152,19 @@ class LegacyMultiplierUncertainty:
     """
     
     MULTIPLIERS = {
-        "best-case": {
+        "best_case": {
             "temp": 0.9,
             "rain": 1.1,
             "inflow": 1.1,
             "state": 1.05,
         },
-        "average-case": {
+        "average_case": {
             "temp": 1.0,
             "rain": 1.0,
             "inflow": 1.0,
             "state": 1.0,
         },
-        "worst-case": {
+        "worst_case": {
             "temp": 1.1,
             "rain": 0.9,
             "inflow": 0.9,
@@ -237,10 +237,10 @@ def case_value_multiplicator(scenario: str, value: float, value_name: str) -> fl
     Maps value_name to appropriate multiplier type and applies adjustment.
     This is kept for compatibility but new code should use ConformalUncertainty.
     """
-    if scenario == "average-case":
+    if scenario == "average_case":
         return value
     
-    is_best = scenario == "best-case"
+    is_best = scenario == "best_case"
     
     if value_name in ("temp_max", "temp_today", "temp_tomorrow"):
         return value * (0.9 if is_best else 1.1)

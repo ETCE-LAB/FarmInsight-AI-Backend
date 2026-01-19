@@ -8,6 +8,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from joblib import load
 
+SCENARIO_TO_Q = {"worst_case": 0.1, "average_case": 0.5, "best_case": 0.9}
+
 from ..utils.beam_search import BeamSearchOptimizer, BeamState
 from ..utils.config import (
     BEAM_WIDTH_DEFAULT,
@@ -136,6 +138,11 @@ def _create_day_simulator(scenario: str, tank_capacity: float, plant_area: float
     
     return simulate
 
+def _load_quantile_models():
+    models = {}
+    for scen, q in SCENARIO_TO_Q.items():
+        models[scen] = load(TRAINED_MODELS_DIR / f"synthetic_quantile_q{int(q*100):02d}.pkl")
+    return models
 
 def model_forecast(
         latitude: float,
@@ -169,7 +176,7 @@ def model_forecast(
     Returns:
         (tank_results_by_scenario, soil_results_by_scenario)
     """
-    ml_model = load(TRAINED_MODELS_DIR / "synthetic_model.pkl")
+    quantile_models = _load_quantile_models()
 
     forecast, inflow_data, df_forecast = prepare_data_for_prediction(
         latitude=latitude,
@@ -191,6 +198,7 @@ def model_forecast(
     use_greedy_fallback = forecast_days > BEAM_GREEDY_FALLBACK_DAYS
 
     for scenario in scenarios:
+        ml_model = quantile_models[scenario]
         if use_beam_search:
             # Use beam search optimization
             best_plan, best_tank_results, best_soil_results = _optimize_with_beam_search(
@@ -264,6 +272,7 @@ def _optimize_with_beam_search(
         plant_area=plant_area,
         scenario=scenario,
         ml_model=ml_model,
+        forecast_days=forecast_days
     )
 
     return best_plan, tank_results, soil_results

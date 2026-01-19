@@ -63,10 +63,23 @@ class ForecastWrappedResponseSerializer(serializers.Serializer):
     actions = ActionsByCaseSerializer(many=True)
 
 
-class TrainingSerializer(serializers.Serializer):
-    len_x = serializers.IntegerField()
-    len_y = serializers.IntegerField()
-    model_type = serializers.CharField()
+class QuantileResultSerializer(serializers.Serializer):
+    model_path = serializers.CharField()
+    pinball_loss_water_level = serializers.FloatField()
+    pinball_loss_soil_moisture = serializers.FloatField()
     best_params_water_level = serializers.DictField()
     best_params_soil_moisture = serializers.DictField()
-    final_r2_score = serializers.FloatField()
+
+
+class TrainingSerializer(serializers.Serializer):
+    len_x = serializers.IntegerField(required=False)
+    len_y = serializers.IntegerField(required=False)
+    model_type = serializers.CharField(required=False)
+    best_params_water_level = serializers.DictField(required=False)
+    best_params_soil_moisture = serializers.DictField(required=False)
+    median_pinball_loss = serializers.FloatField(required=False)
+
+    rows = serializers.IntegerField(required=False)
+    train_rows = serializers.IntegerField(required=False)
+    test_rows = serializers.IntegerField(required=False)
+    quantiles = serializers.DictField(child=QuantileResultSerializer(), required=False)
