@@ -390,7 +390,7 @@ def create_day_simulator(scenario_adjuster: Callable):
             "rain_tomorrow": rain_tomorrow,
             "irrigation_last_h_days": irrigation_last_h_days,
             "pump_usage": pumps_today,
-            "calculated_total_l": water_inflow,
+            "inflow_forecast_l_today": water_inflow,
             "irrigation_today": Qout_l_final,
         }
         

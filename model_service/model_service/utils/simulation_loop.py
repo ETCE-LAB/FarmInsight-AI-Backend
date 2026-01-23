@@ -103,7 +103,7 @@ def run_forecast_period(
             "rain_tomorrow": float(rain_tomorrow),
             "irrigation_last_h_days": float(irrigation_last_h_days),
             "pump_usage": int(pumps_today),
-            "calculated_total_l": float(water_inflow),
+            "inflow_forecast_l_today": float(water_inflow),
             "irrigation_today": float(Qout_l_final),
         }
 
@@ -242,7 +242,7 @@ def simulate_single_day(
         "rain_tomorrow": rain_tomorrow,
         "irrigation_last_h_days": irrigation_last_h_days,
         "pump_usage": action,
-        "calculated_total_l": water_inflow,
+        "inflow_forecast_l_today": water_inflow,
         "irrigation_today": Qout_l_final,
     }
     # ML Predictions (Residuals)

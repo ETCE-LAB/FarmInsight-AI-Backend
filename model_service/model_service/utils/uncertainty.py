@@ -248,7 +248,7 @@ def case_value_multiplicator(scenario: str, value: float, value_name: str) -> fl
     if value_name in ("rain", "rain_today", "rain_tomorrow"):
         return value * (1.1 if is_best else 0.9)
     
-    if value_name in ("inflow_l", "calculated_total_l"):
+    if value_name in ("inflow_l", "inflow_forecast_l_today"):
         return value * (1.1 if is_best else 0.9)
     
     if value_name in ("soil_moisture_previous", "water_level_previous"):

@@ -1,8 +1,6 @@
-# model_trainer.py  (ersetzt/ergänzt deine train_model-Funktion)
 import os.path
 from os import makedirs
 
-import numpy as np
 import pandas as pd
 from django.conf import settings
 from joblib import dump
@@ -27,8 +25,8 @@ X_feature_cols = [
     "rain_tomorrow",
     "irrigation_last_h_days",
     "pump_usage",
-    "calculated_total_l",
-    "irrigation_today",
+    "inflow_forecast_l_today",
+    #"irrigation_today",
 ]
 
 y_feature_cols = [
@@ -68,14 +66,14 @@ def _compute_residual_targets(X_df: pd.DataFrame, y_df: pd.DataFrame) -> pd.Data
     for (i, x), (_, y) in zip(X_df.iterrows(), y_df.iterrows()):
         p_tank_next, _ = tank_phys.update(
             tank_level_prev=float(x["water_level"]),
-            inflow_l=float(x["calculated_total_l"]),
-            outflow_l=float(x["irrigation_today"]),
+            inflow_l=float(x["inflow_forecast_l_today"]),
+            outflow_l=float(x["pump_usage"] * 1.5),
             tank_capacity=float(DEFAULT_TANK_CAPACITY),
         )
 
         p_soil_next = soil_phys.compute_base(
             soil_moisture_prev=float(x["soil_moisture"]),
-            irrigation_mm=float(x["irrigation_today"]) / float(DEFAULT_PLANT_AREA),
+            irrigation_mm=float(x["pump_usage"] * 1.5) / float(DEFAULT_PLANT_AREA),
             rain_mm=float(x["rain_today"]),
             temp_c=float(x["temp_today"]),
         )
