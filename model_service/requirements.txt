@@ -1,6 +1,6 @@
-numpy
-joblib
-lightgbm
+numpy~=2.3.5
+joblib~=1.4.2
+lightgbm~=4.6.0
 scikit-learn~=1.7.2
 Django~=5.1.2
 pandas~=2.3.3
