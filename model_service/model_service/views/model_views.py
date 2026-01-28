@@ -28,7 +28,7 @@ MODEL_FORECAST_PARAMS = [
     "start_soil_moisture"
 ]
 
-MODEL_SCENARIOS: List[str] = ["best-case", "average-case", "worst-case"]
+MODEL_SCENARIOS: List[str] = ["best_case", "average_case", "worst_case"]
 
 MODEL_ACTIONS = [{"name": "watering", "type": "float"}]
 
@@ -85,7 +85,11 @@ def get_model_forecast(request) -> Response:
             start_soil_moisture=start_soil_moisture
         )
     except Exception as e:
-        return Response({"error": f"Simulation failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        import traceback
+        error_msg = f"Simulation failed: {type(e).__name__}: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        print(traceback.format_exc())
+        return Response({"error": error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     forecast_data = {
         "tank_forecast": tank_results,

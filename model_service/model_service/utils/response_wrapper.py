@@ -38,25 +38,25 @@ def response_wrapper(plans: dict) -> dict:
         {
             "name": "tank_level",
             "values": [
-                {"name": "best_case", "value": series_points("tank_forecast", "best-case", "tank_l")},
-                {"name": "average_case", "value": series_points("tank_forecast", "average-case", "tank_l")},
-                {"name": "worst_case", "value": series_points("tank_forecast", "worst-case", "tank_l")},
+                {"name": "best_case", "value": series_points("tank_forecast", "best_case", "tank_l")},
+                {"name": "average_case", "value": series_points("tank_forecast", "average_case", "tank_l")},
+                {"name": "worst_case", "value": series_points("tank_forecast", "worst_case", "tank_l")},
             ],
         },
         {
             "name": "soil_moisture",
             "values": [
-                {"name": "best_case", "value": series_points("soil_forecast", "best-case", "soil_mm")},
-                {"name": "average_case", "value": series_points("soil_forecast", "average-case", "soil_mm")},
-                {"name": "worst_case", "value": series_points("soil_forecast", "worst-case", "soil_mm")},
+                {"name": "best_case", "value": series_points("soil_forecast", "best_case", "soil_mm")},
+                {"name": "average_case", "value": series_points("soil_forecast", "average_case", "soil_mm")},
+                {"name": "worst_case", "value": series_points("soil_forecast", "worst_case", "soil_mm")},
             ],
         },
     ]
 
     actions = [
-        {"name": "best_case", "value": action_points("tank_forecast", "best-case")},
-        {"name": "average_case", "value": action_points("tank_forecast", "average-case")},
-        {"name": "worst_case", "value": action_points("tank_forecast", "worst-case")},
+        {"name": "best_case", "value": action_points("tank_forecast", "best_case")},
+        {"name": "average_case", "value": action_points("tank_forecast", "average_case")},
+        {"name": "worst_case", "value": action_points("tank_forecast", "worst_case")},
     ]
 
     return {"forecasts": forecasts, "actions": actions}
