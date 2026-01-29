@@ -29,7 +29,7 @@ All FarmInsight Repositories:
 - <a href="https://github.com/ETCE-LAB/FarmInsight-Dashboard-Backend">Dashboard-Backend</a>
 - <a href="https://github.com/ETCE-LAB/FarmInsight-FPF-Backend">FPF-Backend</a>
 - <a href="https://github.com/ETCE-LAB/FarmInsight-AI-Backend">AI-Backend</a>
-Link to our productive System:<a href="https://farminsight.etce.isse.tu-clausthal.de"> FarmInsight.etce.isse.tu-clausthal.de</a>
+Link to our deployed System: <a href="https://farminsight.etce.isse.tu-clausthal.de"> FarmInsight.etce.isse.tu-clausthal.de</a>
 
 ## Overview
 
@@ -59,7 +59,7 @@ The service exposes a standardized REST API that allows easy integration of new 
 
 ### Prerequisites
 
-- Python 3.11 or higher
+- Python 3.13 or higher
 - `pip` (Python package manager)
 - `virtualenv` (recommended for isolated environments)
 
@@ -71,7 +71,7 @@ The service exposes a standardized REST API that allows easy integration of new 
 cd model_service
 ```
 
-1. Create and activate a virtual environment:
+2. Create and activate a virtual environment:
 
 ```bash
 python -m venv .venv
@@ -80,7 +80,7 @@ source .venv/bin/activate  # Linux/Mac
 .venv\Scripts\activate     # Windows
 ```
 
-1. Install the required dependencies:
+3. Install the required dependencies:
 
 ```bash
 pip install -r requirements.txt
