@@ -41,7 +41,7 @@ pipeline {
         configFileProvider([configFile(fileId: 'kubectl-config',
         variable: 'KUBE_CONFIG')]) {
         sh '''
-           kubectl --kubeconfig=${KUBE_CONFIG} -n farminsight rollout restart deployment farminsight-ai-backend
+           kubectl --kubeconfig=${KUBE_CONFIG} -n farminsight-dev rollout restart deployment farminsight-ai-backend
            '''
         }
       }
