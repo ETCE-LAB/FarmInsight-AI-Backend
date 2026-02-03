@@ -28,9 +28,9 @@ spec:
               mountPath: /app/environment
               readOnly: true
       volumes:
-      - name: farminsight-env
+      - name: farminsight-ai-env
         configMap:
-          name: farminsight-env
+          name: farminsight-ai-env
           items:
             - key: .env.dev
               path: .env.dev
