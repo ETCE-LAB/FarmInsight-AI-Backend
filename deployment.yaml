@@ -20,7 +20,7 @@ spec:
       - name: docker-registry-private
       containers:
       - name: farminsight-ai-backend
-        image: registry.etce.isse.tu-clausthal.de/etce-lab/farminsight-ai-backend:latest
+        image: registry.etce.isse.tu-clausthal.de/etce-lab/farminsight-dev-ai-backend:latest
         ports:
         - containerPort: 8000 #The port for the django container
         volumeMounts:
