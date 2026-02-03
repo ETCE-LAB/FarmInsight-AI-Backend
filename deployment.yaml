@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: farminsight-ai-backend #The name of the Kubernetes
+        #Deployment to be created in the Kubernetes cluster
+  namespace: farminsight-dev
+  labels:
+    app: farminsight-ai-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: farminsight-ai-backend
+  template:
+    metadata:
+      labels:
+        app: farminsight-ai-backend
+    spec:
+      imagePullSecrets:
+      - name: docker-registry-private
+      containers:
+      - name: farminsight-ai-backend
+        image: registry.etce.isse.tu-clausthal.de/etce-lab/farminsight-ai-backend:latest
+        ports:
+        - containerPort: 8000 #The port for the django container
+        volumeMounts:
+            - name: farminsight-ai-env
+              mountPath: /app/environment
+              readOnly: true
+      volumes:
+      - name: farminsight-ai-env
+        configMap:
+          name: farminsight-ai-env
+          items:
+            - key: .env.dev
+              path: .env.dev

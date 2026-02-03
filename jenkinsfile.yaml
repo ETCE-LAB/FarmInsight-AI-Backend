@@ -1,0 +1,50 @@
+pipeline {
+  environment {
+    dockerregistry = "https://registry.etce.isse.tu-clausthal.de"
+    dockerregistrycredential = "docker-registry-private"
+    dockerimagename = "registry.etce.isse.tu-clausthal.de/etce-lab/farminsight-ai-backend:latest"
+    dockerImage = ""
+    TOKEN = credentials('jenkins-farminsight-kubernetes-token')
+    KUBERNETES_SERVER = credentials('kubernetes-server-api-url')
+  }
+  agent any
+  stages {
+    stage('Checkout Source') {
+      steps {
+        git url: 'https://github.com/ETCE-LAB/FarmInsight-AI-Backend.git',
+            branch: 'deployment'
+      }
+    }
+    stage('Build image') {
+      steps{
+        script{
+        dockerImage = docker.build(dockerimagename)
+        }
+      }
+    }
+    stage('Deploy Image'){
+      steps{
+        script{
+          docker.withRegistry(dockerregistry, dockerregistrycredential){
+          dockerImage.push("latest")
+          }
+        }
+      }
+    }
+    stage('Remove Unused docker image'){
+      steps{
+        sh 'docker rmi $dockerimagename'
+      }
+    }
+    stage('Re-deploy Kubernetes Pod'){
+      steps{
+        configFileProvider([configFile(fileId: 'kubectl-config',
+        variable: 'KUBE_CONFIG')]) {
+        sh '''
+           kubectl --kubeconfig=${KUBE_CONFIG} -n farminsight rollout restart deployment farminsight-ai-backend
+           '''
+        }
+      }
+    }
+    }
+  }
