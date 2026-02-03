@@ -12,7 +12,7 @@ pipeline {
     stage('Checkout Source') {
       steps {
         git url: 'https://github.com/ETCE-LAB/FarmInsight-AI-Backend.git',
-            branch: 'deployment'
+            branch: 'dev'
       }
     }
     stage('Build image') {
