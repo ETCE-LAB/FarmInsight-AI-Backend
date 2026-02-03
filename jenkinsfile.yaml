@@ -38,13 +38,13 @@ pipeline {
     }
     stage('Re-deploy Kubernetes Pod'){
       steps{
-            sh '''
-             kubectl --token=${TOKEN} --server="${KUBERNETES_SERVER}" --insecure-skip-tls-verify -n farminsight get pods
-             kubectl --token=${TOKEN} --server="${KUBERNETES_SERVER}" --insecure-skip-tls-verify -n farminsight delete pods -l=app=farminsight-ai-backend
-             kubectl --token=${TOKEN} --server="${KUBERNETES_SERVER}" --insecure-skip-tls-verify -n farminsight apply -f deployment.yaml
-             kubectl --token=${TOKEN} --server="${KUBERNETES_SERVER}" --insecure-skip-tls-verify -n farminsight apply -f service.yaml
-            '''
-       }
-}
+        configFileProvider([configFile(fileId: 'kubectl-config',
+        variable: 'KUBE_CONFIG')]) {
+        sh '''
+           kubectl --kubeconfig=${KUBE_CONFIG} -n farminsight rollout restart deployment farminsight-ai-backend
+           '''
+        }
+      }
+    }
     }
   }

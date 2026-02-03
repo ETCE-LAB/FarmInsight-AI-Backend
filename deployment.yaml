@@ -23,3 +23,14 @@ spec:
         image: registry.etce.isse.tu-clausthal.de/etce-lab/farminsight-ai-backend:latest
         ports:
         - containerPort: 8000 #The port for the django container
+        volumeMounts:
+            - name: farminsight-ai-env
+              mountPath: /app/environment
+              readOnly: true
+      volumes:
+      - name: farminsight-env
+        configMap:
+          name: farminsight-env
+          items:
+            - key: .env.dev
+              path: .env.dev
