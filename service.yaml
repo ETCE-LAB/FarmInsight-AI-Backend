@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: farminsight-dev-ai-backend-service
+  namespace: farminsight-dev
+spec:
+  ports:
+    - name: "8000"
+      port: 8000
+      targetPort: 8000
+  selector:
+    app: farminsight-ai-backend
