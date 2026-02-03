@@ -31,11 +31,6 @@ pipeline {
         }
       }
     }
-    stage('Remove Unused docker image'){
-      steps{
-        sh 'docker rmi $dockerimagename'
-      }
-    }
     stage('Re-deploy Kubernetes Pod'){
       steps{
         configFileProvider([configFile(fileId: 'kubectl-config',
