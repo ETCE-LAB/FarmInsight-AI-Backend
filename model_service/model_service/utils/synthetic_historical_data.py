@@ -162,7 +162,7 @@ def build_synthetic_time_series_v2(
                 "Tmax_c": temp,
                 "sunshine_duration": sun_sec,
                 "total_m3": total_m3,
-                "calculated_total_l": inflow_l,
+                "inflow_forecast_l_today": inflow_l,
                 "irrigation_l": irrigation_l,
                 "pump_usage": pump_usage,
                 "water_level": water_level,

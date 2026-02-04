@@ -137,7 +137,7 @@ def prepare_data_for_training():
     df_train['water_level_tomorrow'] = df_train['water_level'].shift(-1)
     df_train["soil_moisture_tomorrow"] = df_train["soil_moisture"].shift(-1)
 
-    df_train["calculated_total_l"] = df_train["total_m3"] * 1000
+    df_train["inflow_forecast_l_today"] = df_train["total_m3"] * 1000
 
     df_train["tank_capacity"] = 150
     df_train["month"] = df_train["date"].dt.month
