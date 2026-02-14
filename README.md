@@ -315,7 +315,7 @@ graph TD
 - **Battery capacity**: `Anker Daten ALL Kapazität in Wh.json` — historical Anker Solar Bank capacity readings
 - **Power consumption**: `Power Daten ALL Vebrauch in Watt.json` — historical power consumption in Watts
 - **Weather**: Historical hourly data from [Open-Meteo Archive API](https://open-meteo.com/) (shortwave radiation, cloud cover, sunshine duration, temperature, humidity) — no API key required
-- **Location**: Clausthal-Zellerfeld (51.90°N, 10.43°E, 289m elevation)
+- **Location**: Goslar (51.90°N, 10.43°E, 289m elevation)
 
 #### Output Data
 
@@ -351,7 +351,7 @@ Actions are scheduled **2 hours before** the threshold is predicted to be hit (b
 
 #### Site Configuration
 
-The Energy Model includes site-specific calibration (`site_config.py`) for the Clausthal-Zellerfeld installation:
+The Energy Model includes site-specific calibration (`site_config.py`) for the Goslar installation:
 
 - **Site shading factor**: `0.35` — only 35% of theoretical solar radiation reaches the panels (terrain/building shading)
 - **Effective solar window**: 9:00–12:00 local time (peak at 10:00–11:00)
